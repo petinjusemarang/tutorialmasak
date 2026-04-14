@@ -35,12 +35,6 @@ local SHEETS_URL = "https://script.google.com/macros/s/AKfycbzBFd5ASlqRLk1pS4Kx3
 local API_URL    = "https://samlongweb-production.up.railway.app"
 local API_KEY    = "slg_prod_nJjQZJQ4kR98l9zTfTJ56CBgeDrzxaws0eFk7rYJg2SAhvu7WRloXti3KkiXRnYN"
 
--- Nama file lokal di folder workspace executor (taruh autobrain.lua di sana)
--- Synapse X  → C:\Synapse X\workspace\autobrain.lua
--- KRNL       → folder KRNL\workspace\autobrain.lua
--- Executor lain → cari folder "workspace" di sebelah .exe executor kamu
-local SCRIPT_FILE = "autobrain.lua"
-
 -- ═══════════════════════════════════
 --  LOG UI (debug, lobby phase)
 -- ═══════════════════════════════════
@@ -1426,14 +1420,14 @@ local function onLobby()
         end
 
         -- Queue autoexec untuk setelah teleport ke map
-        local queued = queueOnTeleport(string.format([[
+        local queued = queueOnTeleport([[
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(7)
 local ok, err = pcall(function()
-    loadstring(readfile("%s"))()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/brain.lua"))()
 end)
 if not ok then print("[BRAIN] Autoexec error: " .. tostring(err)) end
-]], SCRIPT_FILE))
+]])
         if queued then
             log("[QUEUE] Autoexec queued OK")
         else
