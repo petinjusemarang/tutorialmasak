@@ -35,50 +35,116 @@ local SHEETS_URL = "https://script.google.com/macros/s/AKfycbzBFd5ASlqRLk1pS4Kx3
 local API_URL    = "https://samlongweb-production.up.railway.app"
 local API_KEY    = "slg_prod_nJjQZJQ4kR98l9zTfTJ56CBgeDrzxaws0eFk7rYJg2SAhvu7WRloXti3KkiXRnYN"
 
--- Nama file lokal di folder workspace executor (taruh autobrain.lua di sana)
--- Synapse X  → C:\Synapse X\workspace\autobrain.lua
--- KRNL       → folder KRNL\workspace\autobrain.lua
--- Executor lain → cari folder "workspace" di sebelah .exe executor kamu
-local SCRIPT_FILE = "autobrain.lua"
+-- URL script untuk queue_on_teleport setelah masuk map (Delta pakai HttpGet)
+local SCRIPT_URL = "https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/brain.lua"
 
 -- ═══════════════════════════════════
---  LOG UI (debug, lobby phase)
+--  LOG UI — compact panel, bottom-left
 -- ═══════════════════════════════════
 local logGui = Instance.new("ScreenGui", player.PlayerGui)
-logGui.Name         = "SamlongBrainLog"
-logGui.ResetOnSpawn = false
+logGui.Name             = "SamlongBrainLog"
+logGui.ResetOnSpawn     = false
+logGui.ZIndexBehavior   = Enum.ZIndexBehavior.Global
+logGui.DisplayOrder     = 50
 
 local logFrame = Instance.new("Frame", logGui)
-logFrame.Size            = UDim2.new(0, 420, 0, 250)
-logFrame.Position        = UDim2.new(0, 20, 0, 100)
-logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-logFrame.BackgroundTransparency = 0.15
-logFrame.BorderSizePixel = 0
+logFrame.Size                   = UDim2.new(0, 300, 0, 185)
+logFrame.Position               = UDim2.new(0, 10, 1, -200)
+logFrame.BackgroundColor3       = Color3.fromRGB(8, 8, 14)
+logFrame.BackgroundTransparency = 0.05
+logFrame.BorderSizePixel        = 0
+Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 10)
+local stroke = Instance.new("UIStroke", logFrame)
+stroke.Color     = Color3.fromRGB(90, 50, 160)
+stroke.Thickness = 1
 
+-- Header
+local hdr = Instance.new("Frame", logFrame)
+hdr.Size             = UDim2.new(1, 0, 0, 28)
+hdr.BackgroundColor3 = Color3.fromRGB(18, 10, 32)
+hdr.BorderSizePixel  = 0
+Instance.new("UICorner", hdr).CornerRadius = UDim.new(0, 10)
+
+local hdrTitle = Instance.new("TextLabel", hdr)
+hdrTitle.Size                   = UDim2.new(1, -36, 1, 0)
+hdrTitle.Position               = UDim2.new(0, 10, 0, 0)
+hdrTitle.BackgroundTransparency = 1
+hdrTitle.Text                   = "SAMLONG BRAIN"
+hdrTitle.Font                   = Enum.Font.GothamBold
+hdrTitle.TextSize               = 11
+hdrTitle.TextColor3             = Color3.fromRGB(180, 120, 255)
+hdrTitle.TextXAlignment         = Enum.TextXAlignment.Left
+
+-- Status dot (kuning=standby, hijau=ingame, merah=error)
+local dot = Instance.new("Frame", hdr)
+dot.Size             = UDim2.new(0, 8, 0, 8)
+dot.Position         = UDim2.new(1, -18, 0.5, -4)
+dot.BackgroundColor3 = Color3.fromRGB(245, 158, 11)
+dot.BorderSizePixel  = 0
+Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+-- State label
+local stateLabel = Instance.new("TextLabel", logFrame)
+stateLabel.Size                   = UDim2.new(1, -16, 0, 16)
+stateLabel.Position               = UDim2.new(0, 8, 0, 31)
+stateLabel.BackgroundTransparency = 1
+stateLabel.Font                   = Enum.Font.GothamBold
+stateLabel.TextSize               = 10
+stateLabel.TextColor3             = Color3.fromRGB(120, 120, 150)
+stateLabel.TextXAlignment         = Enum.TextXAlignment.Left
+stateLabel.Text                   = "STATE: —"
+
+-- Divider
+local div = Instance.new("Frame", logFrame)
+div.Size             = UDim2.new(1, -16, 0, 1)
+div.Position         = UDim2.new(0, 8, 0, 49)
+div.BackgroundColor3 = Color3.fromRGB(50, 30, 80)
+div.BorderSizePixel  = 0
+
+-- Log text
 local logText = Instance.new("TextLabel", logFrame)
-logText.Size                   = UDim2.new(1, -10, 1, -10)
-logText.Position               = UDim2.new(0, 5, 0, 5)
+logText.Size                   = UDim2.new(1, -16, 1, -58)
+logText.Position               = UDim2.new(0, 8, 0, 54)
 logText.BackgroundTransparency = 1
 logText.TextXAlignment         = Enum.TextXAlignment.Left
 logText.TextYAlignment         = Enum.TextYAlignment.Top
 logText.Font                   = Enum.Font.Code
-logText.TextSize               = 13
-logText.TextColor3             = Color3.new(1, 1, 1)
+logText.TextSize               = 10
+logText.TextColor3             = Color3.fromRGB(160, 190, 160)
 logText.TextWrapped            = true
 
 local logs = ""
+
 local function log(msg)
     print("[BRAIN] " .. msg)
     logs = logs .. msg .. "\n"
-    -- Keep last ~20 lines
     local lines = {}
     for l in logs:gmatch("[^\n]+") do table.insert(lines, l) end
-    if #lines > 20 then
-        local trimmed = {}
-        for i = #lines - 19, #lines do trimmed[#trimmed + 1] = lines[i] end
-        logs = table.concat(trimmed, "\n") .. "\n"
+    if #lines > 18 then
+        local t = {}
+        for i = #lines - 17, #lines do t[#t + 1] = lines[i] end
+        logs = table.concat(t, "\n") .. "\n"
     end
-    logText.Text = logs
+    if logText and logText.Parent then logText.Text = logs end
+    -- Warna dot berdasarkan keyword
+    if dot and dot.Parent then
+        if msg:find("%[ERROR%]") or msg:find("FAIL") then
+            dot.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+        elseif msg:find("%[INGAME%]") or msg:find("Execute mode") then
+            dot.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+        elseif msg:find("%[QUEUE%]") then
+            dot.BackgroundColor3 = Color3.fromRGB(168, 85, 247)
+        end
+    end
+end
+
+-- Hapus log GUI setelah mode mulai berjalan
+local function destroyLogGui()
+    task.delay(5, function()
+        if logGui and logGui.Parent then
+            logGui:Destroy()
+        end
+    end)
 end
 
 -- ═══════════════════════════════════
@@ -1417,21 +1483,32 @@ local function onLobby()
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(7)
 local ok, err = pcall(function()
-    loadstring(readfile("%s"))()
+    loadstring(game:HttpGet("%s", true))()
 end)
 if not ok then print("[BRAIN] Autoexec error: " .. tostring(err)) end
-]], SCRIPT_FILE))
+]], SCRIPT_URL))
         if queued then
             log("[QUEUE] Autoexec queued OK")
         else
             log("[QUEUE] WARN: queue_on_teleport tidak support di executor ini")
         end
 
+        -- Tentukan region dari data API, fallback ke mapping jenis
+        local region
+        if data.region and data.region ~= "" then
+            region = data.region
+        else
+            local jenis = (data.jenis or ""):lower()
+            if     jenis == "minigame" then region = "Jakarta"
+            elseif jenis == "event"    then region = "Seasonal"
+            else                            region = "JawaTimur" end
+        end
+
         -- Wait then join
-        log("[LOBBY] Waiting 10s before join")
+        log("[LOBBY] Waiting 10s before join | region: " .. region)
         task.wait(10)
         log("[LOBBY] Joining → " .. data.server_code)
-        remote:FireServer("Join", data.server_code, "JawaTimur")
+        remote:FireServer("Join", data.server_code, region)
     end)
 end
 
@@ -1479,6 +1556,7 @@ local function onIngame()
 
         activeModeRunning = mode
         log("[INGAME] Execute mode: " .. mode)
+        destroyLogGui()  -- hapus log panel setelah mode dimulai
 
         if mode == "joki_uang" then
             startJokiUang()
@@ -1494,14 +1572,14 @@ local function onIngame()
             getgenv().minigame_nojump()
 
         elseif mode == "event_jump" then
-            startMinigame()
-            task.wait(1)
-            getgenv().minigame_jump()
+            -- event jump → race LOSE (biar lawan menang, kita farming point)
+            startRace()
+            task.delay(3, function() getgenv().racelose() end)
 
         elseif mode == "event_nojump" then
-            startMinigame()
-            task.wait(1)
-            getgenv().minigame_nojump()
+            -- event nojump → race WIN
+            startRace()
+            task.delay(3, function() getgenv().racewin() end)
         end
     end)
 end
@@ -1520,6 +1598,20 @@ task.spawn(function()
         if detectedState ~= currentState then
             log("[BRAIN] State: " .. tostring(currentState) .. " → " .. tostring(detectedState))
             currentState = detectedState
+
+            -- Update state label di log GUI
+            if stateLabel and stateLabel.Parent then
+                if detectedState == "lobby" then
+                    stateLabel.Text       = "STATE: LOBBY"
+                    stateLabel.TextColor3 = Color3.fromRGB(245, 158, 11)
+                elseif detectedState == "ingame" then
+                    stateLabel.Text       = "STATE: INGAME"
+                    stateLabel.TextColor3 = Color3.fromRGB(34, 197, 94)
+                else
+                    stateLabel.Text       = "STATE: —"
+                    stateLabel.TextColor3 = Color3.fromRGB(120, 120, 150)
+                end
+            end
 
             if detectedState == "lobby" then
                 activeModeRunning = nil  -- reset on return to lobby
