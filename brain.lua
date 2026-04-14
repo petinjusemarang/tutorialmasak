@@ -1404,12 +1404,30 @@ local function onLobby()
         local data = getPS(username)
 
         if not data or not data.server_code or data.server_code == "" then
-            log("[LOBBY] API empty, sending code")
-            setPS(username, localCode)
-            task.wait(1)
-            data = { server_code = localCode }
+            -- Untuk event, jangan set code sendiri — tunggu code grup dari API
+            local isEvent = data and (data.jenis or ""):lower() == "event"
+            if isEvent then
+                log("[LOBBY] EVENT mode, API belum ada code → wait 10s retry")
+                task.wait(10)
+                data = getPS(username)
+                if not data or not data.server_code or data.server_code == "" then
+                    log("[LOBBY] EVENT: masih tidak ada code dari API, abort")
+                    return
+                end
+            else
+                log("[LOBBY] API empty, sending code")
+                setPS(username, localCode)
+                task.wait(1)
+                data = { server_code = localCode }
+            end
         else
             log("[LOBBY] API code: " .. data.server_code)
+        end
+
+        -- Tentukan region: event pakai region dari API, selainnya default JawaTimur
+        local joinRegion = "JawaTimur"
+        if data.region and data.region ~= "" then
+            joinRegion = data.region
         end
 
         -- Queue autoexec untuk setelah teleport ke map
@@ -1430,8 +1448,8 @@ if not ok then print("[BRAIN] Autoexec error: " .. tostring(err)) end
         -- Wait then join
         log("[LOBBY] Waiting 10s before join")
         task.wait(10)
-        log("[LOBBY] Joining → " .. data.server_code)
-        remote:FireServer("Join", data.server_code, "JawaTimur")
+        log("[LOBBY] Joining → " .. data.server_code .. " | region: " .. joinRegion)
+        remote:FireServer("Join", data.server_code, joinRegion)
     end)
 end
 
@@ -1494,14 +1512,16 @@ local function onIngame()
             getgenv().minigame_nojump()
 
         elseif mode == "event_jump" then
-            startMinigame()
+            -- jump → racelose (Seasonal map)
+            startRace()
             task.wait(1)
-            getgenv().minigame_jump()
+            getgenv().racelose()
 
         elseif mode == "event_nojump" then
-            startMinigame()
+            -- nojump → racewin (Seasonal map)
+            startRace()
             task.wait(1)
-            getgenv().minigame_nojump()
+            getgenv().racewin()
         end
     end)
 end
