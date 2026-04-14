@@ -1404,22 +1404,12 @@ local function onLobby()
         local data = getPS(username)
 
         if not data or not data.server_code or data.server_code == "" then
-            -- Untuk event, jangan set code sendiri — tunggu code grup dari API
-            local isEvent = data and (data.jenis or ""):lower() == "event"
-            if isEvent then
-                log("[LOBBY] EVENT mode, API belum ada code → wait 10s retry")
-                task.wait(10)
-                data = getPS(username)
-                if not data or not data.server_code or data.server_code == "" then
-                    log("[LOBBY] EVENT: masih tidak ada code dari API, abort")
-                    return
-                end
-            else
-                log("[LOBBY] API empty, sending code")
-                setPS(username, localCode)
-                task.wait(1)
-                data = { server_code = localCode }
-            end
+            log("[LOBBY] API empty, sending code")
+            setPS(username, localCode)
+            task.wait(1)
+            -- Re-fetch so we get the group's shared code (backend may redirect to slot 1)
+            local fresh = getPS(username)
+            data = { server_code = (fresh and fresh.server_code ~= "" and fresh.server_code) or localCode, jenis = (fresh and fresh.jenis) or (data and data.jenis) }
         else
             log("[LOBBY] API code: " .. data.server_code)
         end
