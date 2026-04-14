@@ -50,7 +50,7 @@ logGui.ResetOnSpawn = false
 
 -- Main container
 local logFrame = Instance.new("Frame", logGui)
-logFrame.Size                   = UDim2.new(0, 460, 0, 310)
+logFrame.Size                   = UDim2.new(0, 480, 0, 440)
 logFrame.Position               = UDim2.new(0, 16, 0, 90)
 logFrame.BackgroundColor3       = Color3.fromRGB(9, 9, 16)
 logFrame.BackgroundTransparency = 0.04
@@ -100,7 +100,7 @@ dotLabel.ZIndex           = 2
 
 -- Info panel
 local infoPanel = Instance.new("Frame", logFrame)
-infoPanel.Size             = UDim2.new(1, -20, 0, 92)
+infoPanel.Size             = UDim2.new(1, -20, 0, 196)
 infoPanel.Position         = UDim2.new(0, 10, 0, 46)
 infoPanel.BackgroundColor3 = Color3.fromRGB(14, 13, 26)
 infoPanel.BorderSizePixel  = 0
@@ -108,6 +108,7 @@ local _ipc = Instance.new("UICorner", infoPanel); _ipc.CornerRadius = UDim.new(0
 local _ips = Instance.new("UIStroke", infoPanel)
 _ips.Color = Color3.fromRGB(50, 45, 90); _ips.Thickness = 1; _ips.Transparency = 0.4
 
+-- Row 1: Player name
 local guiPlayerLabel = Instance.new("TextLabel", infoPanel)
 guiPlayerLabel.Size             = UDim2.new(1, -12, 0, 22)
 guiPlayerLabel.Position         = UDim2.new(0, 10, 0, 6)
@@ -118,9 +119,10 @@ guiPlayerLabel.TextColor3       = Color3.fromRGB(255, 220, 80)
 guiPlayerLabel.TextXAlignment   = Enum.TextXAlignment.Left
 guiPlayerLabel.Text             = "Player: " .. player.Name
 
+-- Row 2: State | Mode
 local guiStateLabel = Instance.new("TextLabel", infoPanel)
-guiStateLabel.Size             = UDim2.new(0.48, -5, 0, 20)
-guiStateLabel.Position         = UDim2.new(0, 10, 0, 32)
+guiStateLabel.Size             = UDim2.new(0.48, -5, 0, 18)
+guiStateLabel.Position         = UDim2.new(0, 10, 0, 31)
 guiStateLabel.BackgroundTransparency = 1
 guiStateLabel.Font             = Enum.Font.Gotham
 guiStateLabel.TextSize         = 12
@@ -129,8 +131,8 @@ guiStateLabel.TextXAlignment   = Enum.TextXAlignment.Left
 guiStateLabel.Text             = "State:  —"
 
 local guiModeLabel = Instance.new("TextLabel", infoPanel)
-guiModeLabel.Size             = UDim2.new(0.52, -5, 0, 20)
-guiModeLabel.Position         = UDim2.new(0.48, 0, 0, 32)
+guiModeLabel.Size             = UDim2.new(0.52, -5, 0, 18)
+guiModeLabel.Position         = UDim2.new(0.48, 0, 0, 31)
 guiModeLabel.BackgroundTransparency = 1
 guiModeLabel.Font             = Enum.Font.Gotham
 guiModeLabel.TextSize         = 12
@@ -138,9 +140,10 @@ guiModeLabel.TextColor3       = Color3.fromRGB(100, 195, 255)
 guiModeLabel.TextXAlignment   = Enum.TextXAlignment.Left
 guiModeLabel.Text             = "Mode:  —"
 
+-- Row 3: Server code
 local guiServerLabel = Instance.new("TextLabel", infoPanel)
-guiServerLabel.Size             = UDim2.new(1, -12, 0, 20)
-guiServerLabel.Position         = UDim2.new(0, 10, 0, 58)
+guiServerLabel.Size             = UDim2.new(1, -12, 0, 16)
+guiServerLabel.Position         = UDim2.new(0, 10, 0, 51)
 guiServerLabel.BackgroundTransparency = 1
 guiServerLabel.Font             = Enum.Font.Code
 guiServerLabel.TextSize         = 11
@@ -148,15 +151,96 @@ guiServerLabel.TextColor3       = Color3.fromRGB(100, 210, 130)
 guiServerLabel.TextXAlignment   = Enum.TextXAlignment.Left
 guiServerLabel.Text             = "Server: —"
 
+-- Thin divider inside infoPanel
+local _infoDivLine = Instance.new("Frame", infoPanel)
+_infoDivLine.Size             = UDim2.new(1, -16, 0, 1)
+_infoDivLine.Position         = UDim2.new(0, 8, 0, 71)
+_infoDivLine.BackgroundColor3 = Color3.fromRGB(38, 33, 72)
+_infoDivLine.BorderSizePixel  = 0
+
+-- Row 4: Step indicator  [ X/Y ]  description
+local guiStepLabel = Instance.new("TextLabel", infoPanel)
+guiStepLabel.Size             = UDim2.new(1, -12, 0, 20)
+guiStepLabel.Position         = UDim2.new(0, 10, 0, 76)
+guiStepLabel.BackgroundTransparency = 1
+guiStepLabel.Font             = Enum.Font.GothamBold
+guiStepLabel.TextSize         = 12
+guiStepLabel.TextColor3       = Color3.fromRGB(140, 195, 255)
+guiStepLabel.TextXAlignment   = Enum.TextXAlignment.Left
+guiStepLabel.Text             = "—"
+
+-- Row 5: Detail / sub-info
+local guiDetailLabel = Instance.new("TextLabel", infoPanel)
+guiDetailLabel.Size             = UDim2.new(1, -12, 0, 14)
+guiDetailLabel.Position         = UDim2.new(0, 10, 0, 98)
+guiDetailLabel.BackgroundTransparency = 1
+guiDetailLabel.Font             = Enum.Font.Code
+guiDetailLabel.TextSize         = 10
+guiDetailLabel.TextColor3       = Color3.fromRGB(110, 105, 150)
+guiDetailLabel.TextXAlignment   = Enum.TextXAlignment.Left
+guiDetailLabel.TextWrapped      = false
+guiDetailLabel.Text             = ""
+
+-- Row 6: Progress bar
+local guiProgressBg = Instance.new("Frame", infoPanel)
+guiProgressBg.Size             = UDim2.new(1, -20, 0, 5)
+guiProgressBg.Position         = UDim2.new(0, 10, 0, 116)
+guiProgressBg.BackgroundColor3 = Color3.fromRGB(22, 18, 44)
+guiProgressBg.BorderSizePixel  = 0
+local _pgbc = Instance.new("UICorner", guiProgressBg); _pgbc.CornerRadius = UDim.new(1, 0)
+local guiProgressFill = Instance.new("Frame", guiProgressBg)
+guiProgressFill.Size             = UDim2.new(0, 0, 1, 0)
+guiProgressFill.BackgroundColor3 = Color3.fromRGB(80, 140, 255)
+guiProgressFill.BorderSizePixel  = 0
+local _pgfc = Instance.new("UICorner", guiProgressFill); _pgfc.CornerRadius = UDim.new(1, 0)
+local _pgfg = Instance.new("UIGradient", guiProgressFill)
+_pgfg.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(90, 120, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 200, 255)),
+})
+
+-- Row 7: API data fields
+local guiApiLabel = Instance.new("TextLabel", infoPanel)
+guiApiLabel.Size             = UDim2.new(1, -12, 0, 14)
+guiApiLabel.Position         = UDim2.new(0, 10, 0, 126)
+guiApiLabel.BackgroundTransparency = 1
+guiApiLabel.Font             = Enum.Font.Code
+guiApiLabel.TextSize         = 10
+guiApiLabel.TextColor3       = Color3.fromRGB(85, 175, 115)
+guiApiLabel.TextXAlignment   = Enum.TextXAlignment.Left
+guiApiLabel.Text             = "API: —"
+
+-- Row 8: Queue / teleport status
+local guiQueueLabel = Instance.new("TextLabel", infoPanel)
+guiQueueLabel.Size             = UDim2.new(1, -12, 0, 14)
+guiQueueLabel.Position         = UDim2.new(0, 10, 0, 143)
+guiQueueLabel.BackgroundTransparency = 1
+guiQueueLabel.Font             = Enum.Font.Code
+guiQueueLabel.TextSize         = 10
+guiQueueLabel.TextColor3       = Color3.fromRGB(160, 130, 70)
+guiQueueLabel.TextXAlignment   = Enum.TextXAlignment.Left
+guiQueueLabel.Text             = ""
+
+-- Row 9: Countdown label
+local guiCountdownLabel = Instance.new("TextLabel", infoPanel)
+guiCountdownLabel.Size             = UDim2.new(1, -12, 0, 16)
+guiCountdownLabel.Position         = UDim2.new(0, 10, 0, 160)
+guiCountdownLabel.BackgroundTransparency = 1
+guiCountdownLabel.Font             = Enum.Font.GothamBold
+guiCountdownLabel.TextSize         = 12
+guiCountdownLabel.TextColor3       = Color3.fromRGB(255, 155, 55)
+guiCountdownLabel.TextXAlignment   = Enum.TextXAlignment.Left
+guiCountdownLabel.Text             = ""
+
 -- Divider
 local _div = Instance.new("Frame", logFrame)
-_div.Size = UDim2.new(1, -20, 0, 1); _div.Position = UDim2.new(0, 10, 0, 145)
+_div.Size = UDim2.new(1, -20, 0, 1); _div.Position = UDim2.new(0, 10, 0, 249)
 _div.BackgroundColor3 = Color3.fromRGB(50, 45, 90); _div.BorderSizePixel = 0
 
 -- Log section label
 local logSectionLabel = Instance.new("TextLabel", logFrame)
 logSectionLabel.Size             = UDim2.new(1, -20, 0, 16)
-logSectionLabel.Position         = UDim2.new(0, 12, 0, 148)
+logSectionLabel.Position         = UDim2.new(0, 12, 0, 252)
 logSectionLabel.BackgroundTransparency = 1
 logSectionLabel.Font             = Enum.Font.GothamBold
 logSectionLabel.TextSize         = 10
@@ -166,8 +250,8 @@ logSectionLabel.Text             = "LOG"
 
 -- Log text area
 local logText = Instance.new("TextLabel", logFrame)
-logText.Size             = UDim2.new(1, -20, 1, -170)
-logText.Position         = UDim2.new(0, 10, 0, 165)
+logText.Size             = UDim2.new(1, -20, 1, -276)
+logText.Position         = UDim2.new(0, 10, 0, 270)
 logText.BackgroundTransparency = 1
 logText.TextXAlignment   = Enum.TextXAlignment.Left
 logText.TextYAlignment   = Enum.TextYAlignment.Top
@@ -227,6 +311,77 @@ local function setGuiServer(code)
             guiServerLabel.Text = "Server: " .. tostring(code)
         end
     end)
+end
+
+-- [ X/Y ]  desc + progress bar fill
+local function setGuiStep(current, total, desc)
+    pcall(function()
+        if guiStepLabel and guiStepLabel.Parent then
+            guiStepLabel.Text = string.format("[ %d/%d ]  %s", current, total, desc)
+        end
+        if guiProgressFill and guiProgressFill.Parent then
+            local frac = math.clamp(current / math.max(total, 1), 0, 1)
+            guiProgressFill.Size = UDim2.new(frac, 0, 1, 0)
+        end
+    end)
+end
+
+-- Small detail text below the step label
+local function setGuiDetail(text)
+    pcall(function()
+        if guiDetailLabel and guiDetailLabel.Parent then
+            guiDetailLabel.Text = tostring(text or "")
+        end
+    end)
+end
+
+-- API row: jenis / jump_mode / region
+local function setGuiApi(data)
+    pcall(function()
+        if not (guiApiLabel and guiApiLabel.Parent) then return end
+        if not data then guiApiLabel.Text = "API: —"; return end
+        local jenis  = data.jenis     or "?"
+        local jump   = data.jump_mode or "—"
+        local region = data.region    or "—"
+        guiApiLabel.Text = string.format("jenis=%s  jump=%s  region=%s", jenis, jump, region)
+    end)
+end
+
+-- Queue / teleport feedback
+local function setGuiQueue(text, color)
+    pcall(function()
+        if guiQueueLabel and guiQueueLabel.Parent then
+            guiQueueLabel.Text = tostring(text or "")
+            if color then guiQueueLabel.TextColor3 = color end
+        end
+    end)
+end
+
+-- Live countdown in bottom row, returns cancel fn
+local function startGuiCountdown(seconds, prefix)
+    local cancelled = false
+    task.spawn(function()
+        for i = seconds, 1, -1 do
+            if cancelled then break end
+            pcall(function()
+                if guiCountdownLabel and guiCountdownLabel.Parent then
+                    guiCountdownLabel.Text = string.format("%s %ds...", prefix or "Joining in", i)
+                end
+            end)
+            task.wait(1)
+        end
+        if not cancelled then
+            pcall(function()
+                if guiCountdownLabel and guiCountdownLabel.Parent then
+                    guiCountdownLabel.Text = ""
+                end
+            end)
+        end
+    end)
+    return function()
+        cancelled = true
+        pcall(function() guiCountdownLabel.Text = "" end)
+    end
 end
 
 local function destroyLogGui()
@@ -1513,6 +1668,8 @@ local activeModeRunning = nil  -- prevents re-running same mode
 local function onLobby()
     log("[LOBBY] Started")
     setGuiState("LOBBY")
+    setGuiStep(1, 7, "Initializing...")
+    setGuiDetail("Waiting 3s for game to settle")
 
     task.spawn(function()
         task.wait(3)
@@ -1520,58 +1677,95 @@ local function onLobby()
         local username = player.Name
         log("[LOBBY] Player: " .. username)
 
-        -- Get Remote + ServerLabel
+        -- Step 2: Find remote events
+        setGuiStep(2, 7, "Connecting to remotes...")
+        setGuiDetail("NetworkContainer > RemoteEvents > PrivateServer")
+
         local remote = rp:WaitForChild("NetworkContainer", 10)
-        if not remote then log("[LOBBY] No NetworkContainer"); return end
+        if not remote then
+            log("[LOBBY] No NetworkContainer")
+            setGuiDetail("ERROR: NetworkContainer not found")
+            return
+        end
         remote = remote:WaitForChild("RemoteEvents", 5)
-        if not remote then log("[LOBBY] No RemoteEvents"); return end
+        if not remote then
+            log("[LOBBY] No RemoteEvents")
+            setGuiDetail("ERROR: RemoteEvents not found")
+            return
+        end
         remote = remote:WaitForChild("PrivateServer", 5)
-        if not remote then log("[LOBBY] No PrivateServer remote"); return end
+        if not remote then
+            log("[LOBBY] No PrivateServer remote")
+            setGuiDetail("ERROR: PrivateServer remote not found")
+            return
+        end
+
+        -- Step 3: Find ServerLabel in Hub GUI
+        setGuiStep(3, 7, "Finding ServerLabel...")
+        setGuiDetail("Hub > Container > Window > PrivateServer > ServerLabel")
 
         local pg    = player:WaitForChild("PlayerGui")
-        local label = pg
-            :WaitForChild("Hub", 10)
-        if not label then log("[LOBBY] No Hub"); return end
+        local label = pg:WaitForChild("Hub", 10)
+        if not label then
+            log("[LOBBY] No Hub")
+            setGuiDetail("ERROR: Hub GUI not found")
+            return
+        end
         label = label
             :WaitForChild("Container", 5)
             :WaitForChild("Window", 5)
             :WaitForChild("PrivateServer", 5)
             :WaitForChild("ServerLabel", 5)
-        if not label then log("[LOBBY] No ServerLabel"); return end
+        if not label then
+            log("[LOBBY] No ServerLabel")
+            setGuiDetail("ERROR: ServerLabel not found")
+            return
+        end
 
-        -- Wait for server code to appear in UI
+        -- Step 4: Wait for server code to appear
+        setGuiStep(4, 7, "Waiting for server code...")
         local waited = 0
         repeat
             task.wait(0.5)
             waited += 0.5
+            setGuiDetail(string.format("ServerLabel empty — %.1fs / 15s", waited))
         until label.Text ~= "" or waited >= 15
 
         local localCode = label.Text
         if localCode == "" then
             log("[LOBBY] ServerLabel empty after wait, aborting")
+            setGuiDetail("ERROR: code still empty after 15s, aborting")
             return
         end
         log("[LOBBY] UI code: " .. localCode)
         setGuiServer(localCode)
+        setGuiDetail("Local code: " .. localCode)
 
-        -- Check API
+        -- Step 5: Fetch job from API
+        setGuiStep(5, 7, "Fetching job from API...")
+        setGuiDetail("GET /api/private-server?username=" .. username)
         local data = getPS(username)
 
         if not data or not data.server_code or data.server_code == "" then
             log("[LOBBY] API empty, sending code")
+            setGuiDetail("API empty → uploading local code: " .. localCode)
             setPS(username, localCode)
             task.wait(1)
             data = { server_code = localCode }
         else
             log("[LOBBY] API code: " .. data.server_code)
             setGuiServer(data.server_code)
+            setGuiApi(data)
+            setGuiDetail("API → code: " .. data.server_code)
         end
         if data and data.jenis then
             local previewMode = resolveMode(data)
             if previewMode then setGuiMode(previewMode) end
         end
 
-        -- Queue autoexec untuk setelah teleport ke map
+        -- Step 6: Queue autoexec
+        setGuiStep(6, 7, "Queuing autoexec script...")
+        setGuiDetail("Will auto-run " .. SCRIPT_FILE .. " after teleport")
         local queued = queueOnTeleport(string.format([[
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(7)
@@ -1582,13 +1776,19 @@ if not ok then print("[BRAIN] Autoexec error: " .. tostring(err)) end
 ]], SCRIPT_FILE))
         if queued then
             log("[QUEUE] Autoexec queued OK")
+            setGuiQueue("✔  Autoexec queued — will run after teleport", Color3.fromRGB(80, 210, 130))
         else
             log("[QUEUE] WARN: queue_on_teleport tidak support di executor ini")
+            setGuiQueue("⚠  queue_on_teleport not supported by executor", Color3.fromRGB(255, 140, 50))
         end
 
-        -- Wait then join
+        -- Step 7: Countdown then join
+        setGuiStep(7, 7, "Joining server...")
         log("[LOBBY] Waiting 10s before join")
+        setGuiDetail("Target: " .. data.server_code .. "  region: JawaTimur")
+        local cancelCd = startGuiCountdown(10, "Joining in")
         task.wait(10)
+        cancelCd()
         log("[LOBBY] Joining → " .. data.server_code)
         remote:FireServer("Join", data.server_code, "JawaTimur")
     end)
@@ -1600,6 +1800,8 @@ end
 local function onIngame()
     log("[INGAME] Detected")
     setGuiState("INGAME")
+    setGuiStep(1, 4, "Waiting for character...")
+    setGuiDetail("Waiting for HumanoidRootPart to load")
 
     task.spawn(function()
         -- Wait for character fully ready
@@ -1608,69 +1810,86 @@ local function onIngame()
         while not char:FindFirstChild("HumanoidRootPart") and waited < 10 do
             task.wait(0.5)
             waited += 0.5
+            setGuiDetail(string.format("HumanoidRootPart not ready — %.1fs / 10s", waited))
         end
-        task.wait(3)  -- extra settle time per CLAUDE.md
 
+        setGuiDetail("Character ready, settling 3s...")
+        task.wait(3)  -- extra settle time
+
+        -- Step 2: Fetch job
+        setGuiStep(2, 4, "Fetching job from API...")
+        setGuiDetail("GET /api/private-server?username=" .. player.Name)
         log("[INGAME] Character ready, fetching job...")
 
         local data = getPS(player.Name)
         if not data then
             log("[INGAME] API returned nil, retry in 10s")
+            setGuiDetail("API returned nil — retrying in 10s...")
             task.wait(10)
+            setGuiDetail("Retrying GET /api/private-server...")
             data = getPS(player.Name)
         end
 
         if not data then
             log("[INGAME] No data from API, abort")
+            setGuiDetail("ERROR: no API data after retry, aborting")
+            setGuiStep(2, 4, "API fetch failed")
             return
         end
 
+        setGuiApi(data)
+
+        -- Step 3: Resolve mode
         local mode = resolveMode(data)
         if not mode then
             log("[INGAME] resolveMode returned nil (jenis=" .. tostring(data.jenis) .. ")")
+            setGuiDetail("ERROR: unknown jenis=" .. tostring(data.jenis))
+            setGuiStep(3, 4, "Unknown job type")
             return
         end
 
-        setGuiMode(mode)
+        setGuiStep(3, 4, "Job: " .. (_MODE_DISPLAY[mode] or mode))
+        setGuiDetail(string.format(
+            "jenis=%s  jump=%s  region=%s",
+            data.jenis or "?", data.jump_mode or "—", data.region or "—"
+        ))
 
         -- Anti-double execution
         if activeModeRunning == mode then
             log("[INGAME] Mode already running: " .. mode)
+            setGuiDetail("Already running — skipping re-execution")
             return
         end
 
         activeModeRunning = mode
         log("[INGAME] Execute mode: " .. mode)
 
+        -- Step 4: Execute
+        setGuiStep(4, 4, "Executing...")
+        setGuiDetail("Starting " .. (_MODE_DISPLAY[mode] or mode))
+
         if mode == "joki_uang" then
-            destroyLogGui()
             startJokiUang()
 
         elseif mode == "minigame_jump" then
-            destroyLogGui()
             startMinigame()
             task.wait(1)
             getgenv().minigame_jump()
 
         elseif mode == "minigame_nojump" then
-            destroyLogGui()
             startMinigame()
             task.wait(1)
             getgenv().minigame_nojump()
 
         elseif mode == "event_jump" then
-            -- event_jump → Race, player LOSE (dikejar, biar reward ke lawan)
-            destroyLogGui()
-            startRace()
+            startMinigame()
             task.wait(1)
-            getgenv().racelose()
+            getgenv().minigame_jump()
 
         elseif mode == "event_nojump" then
-            -- event_nojump → Race, player WIN
-            destroyLogGui()
-            startRace()
+            startMinigame()
             task.wait(1)
-            getgenv().racewin()
+            getgenv().minigame_nojump()
         end
     end)
 end
