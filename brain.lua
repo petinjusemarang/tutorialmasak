@@ -1424,10 +1424,15 @@ local function onLobby()
             log("[LOBBY] API code: " .. data.server_code)
         end
 
-        -- Tentukan region: event pakai region dari API, selainnya default JawaTimur
-        local joinRegion = "JawaTimur"
-        if data.region and data.region ~= "" then
-            joinRegion = data.region
+        -- Tentukan region berdasarkan jenis
+        local jenisFix = (data.jenis or ""):lower()
+        local joinRegion
+        if jenisFix == "event" then
+            joinRegion = "Seasonal"
+        elseif jenisFix == "minigame" then
+            joinRegion = "Jakarta"
+        else
+            joinRegion = "JawaTimur"  -- uang / default
         end
 
         -- Queue autoexec untuk setelah teleport ke map
