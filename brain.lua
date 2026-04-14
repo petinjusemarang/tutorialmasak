@@ -172,6 +172,19 @@ local function apiUpdate(username, rawPoints)
     end)
 end
 
+-- Throttled wrapper: max 1 send per 60s, skips if value unchanged
+local _lastSend  = -math.huge
+local _lastValue = nil
+
+local function safeApiUpdate(username, value)
+    local now = os.clock()
+    if now - _lastSend < 60 then return end
+    if value == _lastValue then return end
+    _lastSend  = now
+    _lastValue = value
+    apiUpdate(username, value)
+end
+
 local function serverLock()
     pcall(function()
         rp:WaitForChild("NetworkContainer")
@@ -522,7 +535,7 @@ local function startMinigame()
 
     task.spawn(function()
         while true do
-            task.wait(1200)
+            task.wait(60)
             local guiInst = player:FindFirstChild("PlayerGui")
             local lbl     = guiInst
                 and guiInst:FindFirstChild("BoxShop")
@@ -533,7 +546,7 @@ local function startMinigame()
                 local val = (lbl.Text or ""):gsub("%D", "")
                 if val == "" then val = "0" end
                 sendUpdate(val)
-                apiUpdate(player.Name, tonumber(val) or 0)
+                safeApiUpdate(player.Name, tonumber(val) or 0)
             end
         end
     end)
@@ -1077,14 +1090,14 @@ local function startRace()
     task.spawn(function()
         while not RUNNING do task.wait(5) end
         task.wait(10); sendUpdate(tostring(getPointsNum()))
-        while true do task.wait(600); if RUNNING then sendUpdate(tostring(getPointsNum())) end end
+        while true do task.wait(60); if RUNNING then sendUpdate(tostring(getPointsNum())) end end
     end)
     task.spawn(function()
         while not RUNNING do task.wait(5) end
         task.wait(15)
         while true do
-            if RUNNING then apiUpdate(player.Name, getPointsNum()) end
-            task.wait(600)
+            if RUNNING then safeApiUpdate(player.Name, getPointsNum()) end
+            task.wait(60)
         end
     end)
 
@@ -1266,13 +1279,13 @@ local function startJokiUang()
             local initMoney = formatUang(moneyLabel.Text)
             local initRaw   = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
             sendInit(initMoney)
-            apiUpdate(player.Name, initRaw)
+            apiUpdate(player.Name, initRaw)   -- initial send, bypasses throttle intentionally
             while true do
-                task.wait(900)
+                task.wait(60)
                 local curFmt = formatUang(moneyLabel.Text)
                 local curRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
                 sendUpdate(curFmt)
-                apiUpdate(player.Name, curRaw)
+                safeApiUpdate(player.Name, curRaw)
             end
         end)
     end
