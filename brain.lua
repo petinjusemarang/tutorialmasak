@@ -287,12 +287,15 @@ local function startJumpLoop()
                 while game.Players.LocalPlayer.Character
                       and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
                       and game.Players.LocalPlayer.Character.Humanoid.Health > 0 do
-                    game.Players.LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                     game.Players.LocalPlayer.Character.Humanoid.Jump = true
                     wait(0.1)
                 end
-                wait(20)
-                pl.CFrame = respawnLocation
+                wait(5)
+                local newChar = game.Players.LocalPlayer.Character
+                if newChar then
+                    local newPl = newChar:FindFirstChild("HumanoidRootPart")
+                    if newPl then newPl.CFrame = respawnLocation end
+                end
             else
                 task.wait(1)
             end
