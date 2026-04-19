@@ -274,7 +274,7 @@ local function startJumpLoop()
                     game.Players.LocalPlayer.Character.Humanoid.Jump = true
                     wait(0.1)
                 end
-                task.wait(20)
+                task.wait(3)
                 local nc = player.Character
                 if nc and nc:FindFirstChild("HumanoidRootPart") then
                     nc.HumanoidRootPart.CFrame = respawnLocation
@@ -316,7 +316,7 @@ local function startNoJumpLoop()
                       and player.Character.Humanoid.Health > 0 do
                     task.wait(0.1)
                 end
-                task.wait(20)
+                task.wait(3)
                 local nc = player.Character
                 if nc and nc:FindFirstChild("HumanoidRootPart") then
                     nc.HumanoidRootPart.CFrame = respawnLocation
