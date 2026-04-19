@@ -486,7 +486,7 @@ local function startMinigame()
         pointLabel.Text = "0"
     end
 
-    buyBtn.MouseButton1Click:Connect(function()
+    local function tryBuyAvanza()
         local cashLabel = player.PlayerGui:FindFirstChild("Main")
             and player.PlayerGui.Main:FindFirstChild("Container")
             and player.PlayerGui.Main.Container:FindFirstChild("Hub")
@@ -504,7 +504,12 @@ local function startMinigame()
             notif.Text = ("UANG KURANG: %s / %s"):format(uang, hargaAvanza)
             task.delay(3, function() notif.Text = "" end)
         end
-    end)
+    end
+
+    buyBtn.MouseButton1Click:Connect(tryBuyAvanza)
+
+    -- Auto-buy Avanza CVT sekali saat join minigame
+    task.delay(5, tryBuyAvanza)
 
     getgenv().minigame_jump   = function() startJumpLoop() end
     getgenv().minigame_nojump = function() startNoJumpLoop() end
