@@ -284,17 +284,14 @@ local function startJumpLoop()
                     pcall(function() firetouchinterest(pl, touchPart, 0) end)
                     pcall(function() firetouchinterest(pl, touchPart, 1) end)
                 end
-                while player.Character
-                      and player.Character:FindFirstChild("Humanoid")
-                      and player.Character.Humanoid.Health > 0 do
-                    player.Character.Humanoid.Jump = true
-                    task.wait(0.1)
+                while game.Players.LocalPlayer.Character
+                      and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
+                      and game.Players.LocalPlayer.Character.Humanoid.Health > 0 do
+                    game.Players.LocalPlayer.Character.Humanoid.Jump = true
+                    wait(0.1)
                 end
-                task.wait(3)
-                local nc = player.Character
-                if nc and nc:FindFirstChild("HumanoidRootPart") then
-                    nc.HumanoidRootPart.CFrame = respawnLocation
-                end
+                wait(20)
+                pl.CFrame = respawnLocation
             else
                 task.wait(1)
             end
