@@ -246,13 +246,29 @@ end
 local function startJumpLoop()
     stopMovementLoop()
     activeMovementThread = task.spawn(function()
-        while true do
-            pcall(function()
-                rp:WaitForChild("NetworkContainer")
-                  :WaitForChild("RemoteEvents")
-                  :WaitForChild("Minigames")
-                  :FireServer("Enter", "2021Avanza15CVT")
+        local function getRandomCar()
+            local ok, carList = pcall(function()
+                return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
             end)
+            if not ok or not carList then return nil end
+            local cars = {}
+            for _, v in pairs(carList:GetChildren()) do
+                if v:IsA("Frame") then table.insert(cars, v.Name) end
+            end
+            if #cars == 0 then return nil end
+            return cars[math.random(1, #cars)]
+        end
+
+        while true do
+            local chosenCar = getRandomCar()
+            if chosenCar then
+                pcall(function()
+                    rp:WaitForChild("NetworkContainer")
+                      :WaitForChild("RemoteEvents")
+                      :WaitForChild("Minigames")
+                      :FireServer("Enter", chosenCar)
+                end)
+            end
             local char     = player.Character
             local pl       = char and char:FindFirstChild("HumanoidRootPart")
             local humanoid = char and char:FindFirstChild("Humanoid")
@@ -271,8 +287,8 @@ local function startJumpLoop()
                 while player.Character
                       and player.Character:FindFirstChild("Humanoid")
                       and player.Character.Humanoid.Health > 0 do
-                    game.Players.LocalPlayer.Character.Humanoid.Jump = true
-                    wait(0.1)
+                    player.Character.Humanoid.Jump = true
+                    task.wait(0.1)
                 end
                 task.wait(3)
                 local nc = player.Character
@@ -289,13 +305,29 @@ end
 local function startNoJumpLoop()
     stopMovementLoop()
     activeMovementThread = task.spawn(function()
-        while true do
-            pcall(function()
-                rp:WaitForChild("NetworkContainer")
-                  :WaitForChild("RemoteEvents")
-                  :WaitForChild("Minigames")
-                  :FireServer("Enter", "2021Avanza15CVT")
+        local function getRandomCar()
+            local ok, carList = pcall(function()
+                return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
             end)
+            if not ok or not carList then return nil end
+            local cars = {}
+            for _, v in pairs(carList:GetChildren()) do
+                if v:IsA("Frame") then table.insert(cars, v.Name) end
+            end
+            if #cars == 0 then return nil end
+            return cars[math.random(1, #cars)]
+        end
+
+        while true do
+            local chosenCar = getRandomCar()
+            if chosenCar then
+                pcall(function()
+                    rp:WaitForChild("NetworkContainer")
+                      :WaitForChild("RemoteEvents")
+                      :WaitForChild("Minigames")
+                      :FireServer("Enter", chosenCar)
+                end)
+            end
             local char     = player.Character
             local pl       = char and char:FindFirstChild("HumanoidRootPart")
             local humanoid = char and char:FindFirstChild("Humanoid")
@@ -311,6 +343,7 @@ local function startNoJumpLoop()
                     pcall(function() firetouchinterest(pl, touchPart, 0) end)
                     pcall(function() firetouchinterest(pl, touchPart, 1) end)
                 end
+                -- nojump: just wait, don't jump
                 while player.Character
                       and player.Character:FindFirstChild("Humanoid")
                       and player.Character.Humanoid.Health > 0 do
@@ -341,17 +374,6 @@ local function startMinigame()
     local mainFrame = Instance.new("Frame", gui)
     mainFrame.Size                   = UDim2.new(1, 0, 1, 0)
     mainFrame.BackgroundTransparency = 1
-
-    local buyBtn = Instance.new("TextButton", mainFrame)
-    buyBtn.Size             = UDim2.new(0, 180, 0, 40)
-    buyBtn.Position         = UDim2.new(0.75, 0, 0, 30)
-    buyBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    buyBtn.Font             = Enum.Font.GothamBold
-    buyBtn.TextSize         = 18
-    buyBtn.TextColor3       = Color3.new(1, 1, 1)
-    buyBtn.Text             = "BUY AVANZA"
-    buyBtn.BorderSizePixel  = 0
-    buyBtn.AutoButtonColor  = true
 
     local notif = Instance.new("TextLabel", mainFrame)
     notif.Size                   = UDim2.new(1, 0, 0, 30)
@@ -485,31 +507,6 @@ local function startMinigame()
         end
         pointLabel.Text = "0"
     end
-
-    local function tryBuyAvanza()
-        local cashLabel = player.PlayerGui:FindFirstChild("Main")
-            and player.PlayerGui.Main:FindFirstChild("Container")
-            and player.PlayerGui.Main.Container:FindFirstChild("Hub")
-            and player.PlayerGui.Main.Container.Hub:FindFirstChild("CashFrame")
-            and player.PlayerGui.Main.Container.Hub.CashFrame.Frame:FindFirstChild("TextLabel")
-        if not cashLabel then warn("Cash label not found!"); return end
-        local uang        = tonumber(cashLabel.Text:gsub("%D", "")) or 0
-        local hargaAvanza = 232850000
-        if uang >= hargaAvanza then
-            rp:WaitForChild("NetworkContainer")
-              :WaitForChild("RemoteFunctions")
-              :WaitForChild("Dealership")
-              :InvokeServer("Buy", "2021Avanza15CVT", "White", "Toyota")
-        else
-            notif.Text = ("UANG KURANG: %s / %s"):format(uang, hargaAvanza)
-            task.delay(3, function() notif.Text = "" end)
-        end
-    end
-
-    buyBtn.MouseButton1Click:Connect(tryBuyAvanza)
-
-    -- Auto-buy Avanza CVT sekali saat join minigame
-    task.delay(5, tryBuyAvanza)
 
     getgenv().minigame_jump   = function() startJumpLoop() end
     getgenv().minigame_nojump = function() startNoJumpLoop() end
@@ -1465,6 +1462,10 @@ end
 -- ─────────────────────────────────────────
 local function onIngame()
     log("[INGAME] Detected")
+    if activeModeRunning then
+        log("[INGAME] Mode already running: " .. activeModeRunning .. ", skip re-fetch")
+        return
+    end
 
     task.spawn(function()
         -- Wait for character fully ready
