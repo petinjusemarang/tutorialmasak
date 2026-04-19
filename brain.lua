@@ -1083,7 +1083,7 @@ local function startRace()
     end)
 
     task.spawn(function()
-        task.wait(5)
+        task.wait(25)
         sendInit(tostring(getPointsNum()))
         apiUpdate(player.Name, getPointsNum())
     end)
