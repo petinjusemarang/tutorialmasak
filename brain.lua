@@ -287,6 +287,7 @@ local function startJumpLoop()
                 while game.Players.LocalPlayer.Character
                       and game.Players.LocalPlayer.Character:FindFirstChild("Humanoid")
                       and game.Players.LocalPlayer.Character.Humanoid.Health > 0 do
+                    game.Players.LocalPlayer.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                     game.Players.LocalPlayer.Character.Humanoid.Jump = true
                     wait(0.1)
                 end
