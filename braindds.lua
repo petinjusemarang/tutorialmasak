@@ -232,6 +232,7 @@ task.spawn(function()
     end)
 
     -- Execute DDS gameplay loader
+    queueOnTeleport(AUTOEXEC)
     key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
     script = "DDS"
     pcall(function()
