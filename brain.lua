@@ -35,6 +35,21 @@ local SHEETS_URL = "https://script.google.com/macros/s/AKfycbzBFd5ASlqRLk1pS4Kx3
 local API_URL    = "https://samlongweb-production.up.railway.app"
 local API_KEY    = "slg_prod_nJjQZJQ4kR98l9zTfTJ56CBgeDrzxaws0eFk7rYJg2SAhvu7WRloXti3KkiXRnYN"
 
+-- ─── GAME ROUTING ────────────────────────────────────────────
+local PLACE_IDS = {
+    CDID = 6911148748,
+    DDS  = 131378148336503,
+}
+
+local AUTOEXEC = [[
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(7)
+local ok, err = pcall(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/brain.lua"))()
+end)
+if not ok then print("[BRAIN] Autoexec error: " .. tostring(err)) end
+]]
+
 -- ═══════════════════════════════════
 --  LOG UI (debug, lobby phase)
 -- ═══════════════════════════════════
@@ -1305,6 +1320,41 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs
     end)
 end
 
+-- ═══════════════════════════════════
+--  MODE: DDS
+-- ═══════════════════════════════════
+local function startDDS()
+    log("[DDS] Starting for " .. player.Name)
+
+    -- Track RPValue → kirim ke Sheets + API
+    task.spawn(function()
+        local pd    = player:WaitForChild("PlayerData", 15)
+        if not pd then log("[DDS] PlayerData not found"); return end
+        local rpVal = pd:WaitForChild("RPValue", 10)
+        if not rpVal then log("[DDS] RPValue not found"); return end
+
+        task.wait(3)
+        local initRP = rpVal.Value or 0
+        log("[DDS] RP awal: " .. tostring(initRP))
+        sendInit(tostring(initRP))
+        apiUpdate(player.Name, initRP)
+
+        while true do
+            task.wait(60)
+            local curRP = rpVal.Value or 0
+            sendUpdate(tostring(curRP))
+            safeApiUpdate(player.Name, curRP)
+        end
+    end)
+
+    -- Jalankan DDS gameplay loader
+    key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
+    script = "DDS"
+    pcall(function()
+        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+    end)
+end
+
 -- ════════════════════════════════════════════════════════
 --  AUTO BRAIN CONTROLLER
 -- ════════════════════════════════════════════════════════
@@ -1437,14 +1487,7 @@ local function onLobby()
         end
 
         -- Queue autoexec untuk setelah teleport ke map
-        local queued = queueOnTeleport([[
-if not game:IsLoaded() then game.Loaded:Wait() end
-task.wait(7)
-local ok, err = pcall(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/brain.lua"))()
-end)
-if not ok then print("[BRAIN] Autoexec error: " .. tostring(err)) end
-]])
+        local queued = queueOnTeleport(AUTOEXEC)
         if queued then
             log("[QUEUE] Autoexec queued OK")
         else
@@ -1493,6 +1536,21 @@ local function onIngame()
             return
         end
 
+        -- Game routing: if job is DDS but we're in CDID, teleport
+        local targetGame = (data.game or "CDID"):upper()
+        if targetGame == "DDS" then
+            if game.PlaceId ~= PLACE_IDS.DDS then
+                log("[INGAME] Job requires DDS, teleporting...")
+                activeModeRunning = "dds"
+                queueOnTeleport(AUTOEXEC)
+                game:GetService("TeleportService"):Teleport(PLACE_IDS.DDS, player)
+            else
+                activeModeRunning = "dds"
+                startDDS()
+            end
+            return
+        end
+
         local mode = resolveMode(data)
         if not mode then
             log("[INGAME] resolveMode returned nil (jenis=" .. tostring(data.jenis) .. ")")
@@ -1534,6 +1592,37 @@ local function onIngame()
             getgenv().racewin()
         end
     end)
+end
+
+-- ─────────────────────────────────────────
+--  DDS FAST PATH
+--  Jika sudah di DDS, skip seluruh CDID state machine
+-- ─────────────────────────────────────────
+if game.PlaceId == PLACE_IDS.DDS then
+    log("[BRAIN] DDS place detected")
+    task.spawn(function()
+        local char = player.Character or player.CharacterAdded:Wait()
+        local w = 0
+        while not char:FindFirstChild("HumanoidRootPart") and w < 10 do
+            task.wait(0.5); w += 0.5
+        end
+        task.wait(3)
+
+        log("[DDS] Fetching job...")
+        local data = getPS(player.Name)
+        if not data then task.wait(10); data = getPS(player.Name) end
+
+        local targetGame = data and (data.game or "CDID"):upper() or "CDID"
+        if targetGame ~= "DDS" then
+            log("[DDS] Job is CDID, teleporting back...")
+            queueOnTeleport(AUTOEXEC)
+            game:GetService("TeleportService"):Teleport(PLACE_IDS.CDID, player)
+            return
+        end
+
+        startDDS()
+    end)
+    return  -- skip CDID state machine
 end
 
 -- ─────────────────────────────────────────
