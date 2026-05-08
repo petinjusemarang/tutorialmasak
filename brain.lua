@@ -1428,7 +1428,20 @@ local function onLobby()
         local username = player.Name
         log("[LOBBY] Player: " .. username)
 
-        -- Get Remote + ServerLabel
+        -- Fetch job FIRST to know which game before doing anything else
+        local data = getPS(username)
+        local targetGame = data and (data.game or "CDID"):upper() or "CDID"
+        log("[LOBBY] Job game: " .. targetGame)
+
+        -- DDS job: no private server needed, just teleport directly
+        if targetGame == "DDS" then
+            log("[LOBBY] DDS job → teleporting to DDS")
+            queueOnTeleport(AUTOEXEC)
+            game:GetService("TeleportService"):Teleport(PLACE_IDS.DDS, player)
+            return
+        end
+
+        -- CDID job: proceed with private server join logic
         local remote = rp:WaitForChild("NetworkContainer", 10)
         if not remote then log("[LOBBY] No NetworkContainer"); return end
         remote = remote:WaitForChild("RemoteEvents", 5)
@@ -1452,30 +1465,27 @@ local function onLobby()
         repeat
             task.wait(0.5)
             waited += 0.5
-        until label.Text ~= "" or waited >= 15
+        until (label.Text ~= "" and label.Text ~= "None") or waited >= 15
 
         local localCode = label.Text
-        if localCode == "" then
-            log("[LOBBY] ServerLabel empty after wait, aborting")
+        if localCode == "" or localCode == "None" then
+            log("[LOBBY] ServerLabel empty/None after wait, aborting")
             return
         end
         log("[LOBBY] UI code: " .. localCode)
 
-        -- Check API
-        local data = getPS(username)
-
+        -- Sync server code with API
         if not data or not data.server_code or data.server_code == "" then
             log("[LOBBY] API empty, sending code")
             setPS(username, localCode)
             task.wait(1)
-            -- Re-fetch so we get the group's shared code (backend may redirect to slot 1)
             local fresh = getPS(username)
             data = { server_code = (fresh and fresh.server_code ~= "" and fresh.server_code) or localCode, jenis = (fresh and fresh.jenis) or (data and data.jenis) }
         else
             log("[LOBBY] API code: " .. data.server_code)
         end
 
-        -- Tentukan region berdasarkan jenis
+        -- Region berdasarkan jenis
         local jenisFix = (data.jenis or ""):lower()
         local joinRegion
         if jenisFix == "event" then
@@ -1483,10 +1493,9 @@ local function onLobby()
         elseif jenisFix == "minigame" then
             joinRegion = "Jakarta"
         else
-            joinRegion = "JawaTimur"  -- uang / default
+            joinRegion = "JawaTimur"
         end
 
-        -- Queue autoexec untuk setelah teleport ke map
         local queued = queueOnTeleport(AUTOEXEC)
         if queued then
             log("[QUEUE] Autoexec queued OK")
@@ -1494,7 +1503,6 @@ local function onLobby()
             log("[QUEUE] WARN: queue_on_teleport tidak support di executor ini")
         end
 
-        -- Wait then join
         log("[LOBBY] Waiting 10s before join")
         task.wait(10)
         log("[LOBBY] Joining → " .. data.server_code .. " | region: " .. joinRegion)
