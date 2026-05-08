@@ -24,6 +24,30 @@ local VirtualUser = game:GetService("VirtualUser")
 local player      = Players.LocalPlayer
 
 -- ═══════════════════════════════════
+--  QUEUE ON TELEPORT
+--  Agar braindds.lua auto-run setelah Luvio teleport ke Mandalika
+-- ═══════════════════════════════════
+local AUTOEXEC = [[
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(7)
+local ok, err = pcall(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/braindds.lua"))()
+end)
+if not ok then print("[DDS] Autoexec error: " .. tostring(err)) end
+]]
+
+local function queueOnTeleport(code)
+    if syn and syn.queue_on_teleport then
+        syn.queue_on_teleport(code)
+        return true
+    elseif type(queue_on_teleport) == "function" then
+        queue_on_teleport(code)
+        return true
+    end
+    return false
+end
+
+-- ═══════════════════════════════════
 --  CONFIG
 -- ═══════════════════════════════════
 local SHEETS_URL = "https://script.google.com/macros/s/AKfycbzBFd5ASlqRLk1pS4Kx3cvBujvFsCIr0QKrdtVO9xZv8fBPHp0L1CKKRwnjpQwD7qHrIw/exec"
