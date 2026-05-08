@@ -23,6 +23,9 @@ local HttpService = game:GetService("HttpService")
 local VirtualUser = game:GetService("VirtualUser")
 local player      = Players.LocalPlayer
 
+local DDS_LOBBY_PLACE = 131378148336503
+local IS_LOBBY        = (game.PlaceId == DDS_LOBBY_PLACE)
+
 -- ═══════════════════════════════════
 --  QUEUE ON TELEPORT
 --  Agar braindds.lua auto-run setelah Luvio teleport ke Mandalika
@@ -180,7 +183,7 @@ end)
 -- ═══════════════════════════════════
 --  MAIN
 -- ═══════════════════════════════════
-log("Starting — player: " .. player.Name)
+log("Starting — " .. player.Name .. " | Place: " .. tostring(game.PlaceId) .. (IS_LOBBY and " [LOBBY]" or " [RACE MAP]"))
 
 task.spawn(function()
     -- Wait character ready
@@ -232,11 +235,16 @@ task.spawn(function()
         end
     end)
 
-    -- Execute DDS gameplay loader
-    queueOnTeleport(AUTOEXEC)
-    key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
-    script = "DDS"
-    pcall(function()
-        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
-    end)
+    -- Execute DDS gameplay loader (lobby only — race maps skip, Luvio already running)
+    if IS_LOBBY then
+        local qtOK = queueOnTeleport(AUTOEXEC)
+        log("QoT registered: " .. tostring(qtOK))
+        key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
+        script = "DDS"
+        pcall(function()
+            loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+        end)
+    else
+        log("Race map — tracking only, Luvio not re-loaded")
+    end
 end)

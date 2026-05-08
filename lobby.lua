@@ -1,13 +1,11 @@
-local CDID     = 6911148748
-local DDS_IDS  = {
-    [131378148336503] = true,
-    [114862923457266] = true,
-}
+local CDID_PLACE_ID = 6911148748
+local DDS_GAME_ID   = 7089588429
 
-if DDS_IDS[game.PlaceId] then
+if game.GameId == DDS_GAME_ID then
+    getgenv()._samlongDDSRunning = nil
     loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/braindds.lua"))()
-elseif game.PlaceId == CDID then
+elseif game.PlaceId == CDID_PLACE_ID then
     loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/brain.lua"))()
 else
-    print("[LOBBY] Unknown game PlaceId: " .. tostring(game.PlaceId))
+    print("[LOBBY] Unknown: PlaceId=" .. tostring(game.PlaceId) .. " GameId=" .. tostring(game.GameId))
 end
