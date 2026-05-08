@@ -30,6 +30,7 @@ local player      = Players.LocalPlayer
 local AUTOEXEC = [[
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(7)
+getgenv()._samlongDDSRunning = nil
 local ok, err = pcall(function()
     loadstring(game:HttpGet("https://raw.githubusercontent.com/petinjusemarang/tutorialmasak/refs/heads/main/braindds.lua"))()
 end)
