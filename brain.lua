@@ -1460,33 +1460,54 @@ local function onLobby()
             :WaitForChild("ServerLabel", 5)
         if not label then log("[LOBBY] No ServerLabel"); return end
 
-        -- Wait for server code to appear in UI
-        local waited = 0
-        repeat
-            task.wait(0.5)
-            waited += 0.5
-        until (label.Text ~= "" and label.Text ~= "None") or waited >= 15
+        -- API code takes priority; UI ServerLabel only used as fallback/sync source
+        local serverCode = (data and data.server_code ~= "" and data.server_code) or nil
 
-        local localCode = label.Text
-        if localCode == "" or localCode == "None" then
-            log("[LOBBY] ServerLabel empty/None after wait, aborting")
-            return
-        end
-        log("[LOBBY] UI code: " .. localCode)
+        if not serverCode then
+            -- API has no code — try reading from game UI
+            local waited = 0
+            repeat
+                task.wait(0.5); waited += 0.5
+            until (label.Text ~= "" and label.Text ~= "None") or waited >= 15
 
-        -- Sync server code with API
-        if not data or not data.server_code or data.server_code == "" then
-            log("[LOBBY] API empty, sending code")
-            setPS(username, localCode)
-            task.wait(1)
-            local fresh = getPS(username)
-            data = { server_code = (fresh and fresh.server_code ~= "" and fresh.server_code) or localCode, jenis = (fresh and fresh.jenis) or (data and data.jenis) }
+            local uiCode = label.Text
+            if uiCode ~= "" and uiCode ~= "None" then
+                serverCode = uiCode
+                log("[LOBBY] UI code: " .. uiCode .. " → syncing to API")
+                setPS(username, uiCode)
+                task.wait(1)
+                local fresh = getPS(username)
+                if fresh then
+                    data = fresh
+                    if fresh.server_code and fresh.server_code ~= "" then serverCode = fresh.server_code end
+                end
+            end
         else
-            log("[LOBBY] API code: " .. data.server_code)
+            log("[LOBBY] API code: " .. serverCode)
         end
+
+        -- No code yet (dummy/idle slot) → retry setiap 30s sampai order di-assign
+        local retries = 0
+        while not serverCode and currentState == "lobby" do
+            retries += 1
+            if retries > 12 then log("[LOBBY] No code after 6min, abort"); return end
+            log("[LOBBY] Belum ada order, retry " .. retries .. "/12 in 30s")
+            task.wait(30)
+            if currentState ~= "lobby" then return end
+            local fresh = getPS(username)
+            if fresh then
+                data = fresh
+                if fresh.server_code and fresh.server_code ~= "" then
+                    serverCode = fresh.server_code
+                    log("[LOBBY] Code from retry: " .. serverCode)
+                end
+            end
+        end
+
+        if not serverCode then return end
 
         -- Region berdasarkan jenis
-        local jenisFix = (data.jenis or ""):lower()
+        local jenisFix = (data and data.jenis or ""):lower()
         local joinRegion
         if jenisFix == "event" then
             joinRegion = "Seasonal"
@@ -1505,8 +1526,8 @@ local function onLobby()
 
         log("[LOBBY] Waiting 10s before join")
         task.wait(10)
-        log("[LOBBY] Joining → " .. data.server_code .. " | region: " .. joinRegion)
-        remote:FireServer("Join", data.server_code, joinRegion)
+        log("[LOBBY] Joining → " .. serverCode .. " | region: " .. joinRegion)
+        remote:FireServer("Join", serverCode, joinRegion)
     end)
 end
 
