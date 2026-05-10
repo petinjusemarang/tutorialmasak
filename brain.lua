@@ -1355,8 +1355,8 @@ local function startDDS()
     end)
 
     -- Jalankan DDS gameplay loader
-    key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
-    script = "DDS"
+    getgenv().key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
+    getgenv().script = "DDS"
     pcall(function()
         loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
     end)
@@ -1637,26 +1637,30 @@ end
 if game.PlaceId == PLACE_IDS.DDS then
     log("[BRAIN] DDS place detected")
     task.spawn(function()
-        local char = player.Character or player.CharacterAdded:Wait()
-        local w = 0
-        while not char:FindFirstChild("HumanoidRootPart") and w < 10 do
-            task.wait(0.5); w += 0.5
-        end
-        task.wait(3)
+        local ok, err = pcall(function()
+            local char = player.Character or player.CharacterAdded:Wait()
+            local w = 0
+            while not char:FindFirstChild("HumanoidRootPart") and w < 10 do
+                task.wait(0.5); w += 0.5
+            end
+            task.wait(3)
 
-        log("[DDS] Fetching job...")
-        local data = getPS(player.Name)
-        if not data then task.wait(10); data = getPS(player.Name) end
+            log("[DDS] Fetching job...")
+            local data = getPS(player.Name)
+            if not data then task.wait(10); data = getPS(player.Name) end
 
-        local targetGame = data and (data.game or "CDID"):upper() or "CDID"
-        if targetGame ~= "DDS" then
-            log("[DDS] Job is CDID, teleporting back...")
-            queueOnTeleport(AUTOEXEC)
-            game:GetService("TeleportService"):Teleport(PLACE_IDS.CDID, player)
-            return
-        end
+            local targetGame = data and (data.game or "CDID"):upper() or "CDID"
+            if targetGame ~= "DDS" then
+                log("[DDS] Job is CDID, teleporting back...")
+                queueOnTeleport(AUTOEXEC)
+                game:GetService("TeleportService"):Teleport(PLACE_IDS.CDID, player)
+                return
+            end
 
-        startDDS()
+            startDDS()
+        end)
+        getgenv()._samlongBrainRunning = false
+        if not ok then log("[BRAIN] DDS fast-path error: " .. tostring(err)) end
     end)
     return  -- skip CDID state machine
 end
