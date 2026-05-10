@@ -273,16 +273,13 @@ local function apiUpdate(username, rawPoints)
     end)
 end
 
--- Throttled wrapper: max 1 send per 60s, skips if value unchanged
-local _lastSend  = -math.huge
-local _lastValue = nil
+-- Throttled wrapper: max 1 send per 60s (heartbeat agar tidak DISCONNECTED)
+local _lastSend = -math.huge
 
 local function safeApiUpdate(username, value)
     local now = os.clock()
     if now - _lastSend < 60 then return end
-    if value == _lastValue then return end
-    _lastSend  = now
-    _lastValue = value
+    _lastSend = now
     apiUpdate(username, value)
 end
 

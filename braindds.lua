@@ -245,14 +245,11 @@ local function apiUpdate(rawPoints)
     end)
 end
 
-local _lastSend  = -math.huge
-local _lastValue = nil
+local _lastSend = -math.huge
 local function safeApiUpdate(value)
     local now = os.clock()
     if now - _lastSend < 60 then return end
-    if value == _lastValue then return end
-    _lastSend  = now
-    _lastValue = value
+    _lastSend = now
     apiUpdate(value)
 end
 
