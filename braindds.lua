@@ -205,10 +205,15 @@ task.spawn(function()
         return
     end
 
-    local gameTag = (data.game or "CDID"):upper()
+    local gameTag   = (data.game or "CDID"):upper()
+    local inDDSGame = (game.GameId == 7089588429)
     if gameTag ~= "DDS" then
-        log("Job bukan DDS (game=" .. gameTag .. "), script ini hanya untuk DDS. Stop.")
-        return
+        if inDDSGame then
+            log("API game=" .. gameTag .. " tapi GameId=DDS, lanjut...")
+        else
+            log("Job bukan DDS (game=" .. gameTag .. "), stop.")
+            return
+        end
     end
 
     log("Job confirmed DDS, starting...")
