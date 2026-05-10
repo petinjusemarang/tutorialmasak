@@ -235,16 +235,12 @@ task.spawn(function()
         end
     end)
 
-    -- Execute DDS gameplay loader (lobby only — race maps skip, Luvio already running)
-    if IS_LOBBY then
-        local qtOK = queueOnTeleport(AUTOEXEC)
-        log("QoT registered: " .. tostring(qtOK))
-        key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
-        script = "DDS"
-        pcall(function()
-            loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
-        end)
-    else
-        log("Race map — tracking only, Luvio not re-loaded")
-    end
+    -- Execute DDS gameplay loader
+    local qtOK = queueOnTeleport(AUTOEXEC)
+    log("QoT registered: " .. tostring(qtOK))
+    key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
+    script = "DDS"
+    pcall(function()
+        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+    end)
 end)
