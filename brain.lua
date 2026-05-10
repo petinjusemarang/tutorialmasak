@@ -1526,11 +1526,10 @@ local function onLobby()
         local targetGame = data and (data.game or "CDID"):upper() or "CDID"
         log("[LOBBY] Job game: " .. targetGame)
 
-        -- DDS job: no private server needed, just teleport directly
+        -- DDS job in CDID lobby: cannot teleport cross-game from here, show popup
         if targetGame == "DDS" then
-            log("[LOBBY] DDS job → teleporting to DDS")
-            queueOnTeleport(AUTOEXEC)
-            game:GetService("TeleportService"):Teleport(PLACE_IDS.DDS, player)
+            log("[LOBBY] Job adalah DDS tapi player di CDID! Tampilkan popup.")
+            showWrongGamePopup("DDS (Drag Drive Simulator)")
             return
         end
 
