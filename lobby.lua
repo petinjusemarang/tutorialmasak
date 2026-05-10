@@ -1,3 +1,6 @@
+if getgenv()._samlongLobbyRunning then return end
+getgenv()._samlongLobbyRunning = true
+
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(2)
 

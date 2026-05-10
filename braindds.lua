@@ -186,66 +186,72 @@ end)
 log("Starting — " .. player.Name .. " | Place: " .. tostring(game.PlaceId) .. (IS_LOBBY and " [LOBBY]" or " [RACE MAP]"))
 
 task.spawn(function()
-    -- Wait character ready
-    local char = player.Character or player.CharacterAdded:Wait()
-    local w = 0
-    while not char:FindFirstChild("HumanoidRootPart") and w < 10 do
-        task.wait(0.5); w = w + 0.5
-    end
-    task.wait(3)
+    local ok, err = pcall(function()
+        -- Wait character ready
+        local char = player.Character or player.CharacterAdded:Wait()
+        local w = 0
+        while not char:FindFirstChild("HumanoidRootPart") and w < 10 do
+            task.wait(0.5); w = w + 0.5
+        end
+        task.wait(3)
 
-    -- Confirm job is DDS from API
-    local data = getPS(player.Name)
-    if not data then
-        task.wait(10)
-        data = getPS(player.Name)
-    end
-    if not data then
-        log("No data from API, abort")
-        return
-    end
-
-    local gameTag   = (data.game or "CDID"):upper()
-    local inDDSGame = (game.GameId == 7089588429)
-    if gameTag ~= "DDS" then
-        if inDDSGame then
-            log("API game=" .. gameTag .. " tapi GameId=DDS, lanjut...")
-        else
-            log("Job bukan DDS (game=" .. gameTag .. "), stop.")
+        -- Confirm job is DDS from API
+        local data = getPS(player.Name)
+        if not data then
+            task.wait(10)
+            data = getPS(player.Name)
+        end
+        if not data then
+            log("No data from API, abort")
             return
         end
-    end
 
-    log("Job confirmed DDS, starting...")
-
-    -- Track RPValue
-    task.spawn(function()
-        local pd    = player:WaitForChild("PlayerData", 15)
-        if not pd then log("PlayerData not found"); return end
-        local rpVal = pd:WaitForChild("RPValue", 10)
-        if not rpVal then log("RPValue not found"); return end
-
-        task.wait(3)
-        local initRP = rpVal.Value or 0
-        log("RP awal: " .. tostring(initRP))
-        sendInit(tostring(initRP))
-        apiUpdate(initRP)
-
-        while true do
-            task.wait(60)
-            local curRP = rpVal.Value or 0
-            log("RP update: " .. tostring(curRP))
-            sendUpdate(tostring(curRP))
-            safeApiUpdate(curRP)
+        local gameTag   = (data.game or "CDID"):upper()
+        local inDDSGame = (game.GameId == 7089588429)
+        if gameTag ~= "DDS" then
+            if inDDSGame then
+                log("API game=" .. gameTag .. " tapi GameId=DDS, lanjut...")
+            else
+                log("Job bukan DDS (game=" .. gameTag .. "), stop.")
+                return
+            end
         end
-    end)
 
-    -- Execute DDS gameplay loader
-    local qtOK = queueOnTeleport(AUTOEXEC)
-    log("QoT registered: " .. tostring(qtOK))
-    key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
-    script = "DDS"
-    pcall(function()
-        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+        log("Job confirmed DDS, starting...")
+
+        -- Track RPValue
+        task.spawn(function()
+            local pd    = player:WaitForChild("PlayerData", 15)
+            if not pd then log("PlayerData not found"); return end
+            local rpVal = pd:WaitForChild("RPValue", 10)
+            if not rpVal then log("RPValue not found"); return end
+
+            task.wait(3)
+            local initRP = rpVal.Value or 0
+            log("RP awal: " .. tostring(initRP))
+            sendInit(tostring(initRP))
+            apiUpdate(initRP)
+
+            while true do
+                task.wait(60)
+                local curRP = rpVal.Value or 0
+                log("RP update: " .. tostring(curRP))
+                sendUpdate(tostring(curRP))
+                safeApiUpdate(curRP)
+            end
+        end)
+
+        -- Execute DDS gameplay loader (key/script are Luvio executor globals)
+        local qtOK = queueOnTeleport(AUTOEXEC)
+        log("QoT registered: " .. tostring(qtOK))
+        getgenv().key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
+        getgenv().script = "DDS"
+        pcall(function()
+            loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+        end)
     end)
+    getgenv()._samlongDDSRunning = false
+    if not ok then
+        log("Fatal error: " .. tostring(err))
+    end
 end)

@@ -521,7 +521,7 @@ local function startMinigame()
             end
             task.wait(1)
         end
-        pointLabel.Text = "0"
+        log("[ERROR] MinigamePoint GUI tidak ditemukan setelah 30s")
     end
 
     getgenv().minigame_jump   = function() startJumpLoop() end
@@ -581,8 +581,15 @@ local function startRace()
         root = newChar:WaitForChild("HumanoidRootPart")
     end)
 
-    local remotes     = rp:WaitForChild("RaceRemotes")
-    local NPC_PATH    = workspace.Etc.Race.NPC.DA0ZA
+    local remotes  = rp:WaitForChild("RaceRemotes")
+    local NPC_PATH = workspace:FindFirstChild("Etc")
+        and workspace.Etc:FindFirstChild("Race")
+        and workspace.Etc.Race:FindFirstChild("NPC")
+        and workspace.Etc.Race.NPC:FindFirstChild("DA0ZA")
+    if not NPC_PATH then
+        log("[ERROR] NPC_PATH (DA0ZA) tidak ditemukan, race mode abort")
+        return
+    end
     local PROMPT_PATH = NPC_PATH.HumanoidRootPart.Prompt
 
     local RUNNING         = false
@@ -1660,21 +1667,27 @@ end
 log("[BRAIN] Starting state loop")
 
 task.spawn(function()
-    while true do
-        task.wait(2)
+    local ok, err = pcall(function()
+        while true do
+            task.wait(2)
 
-        local detectedState = detectState()
+            local detectedState = detectState()
 
-        if detectedState ~= currentState then
-            log("[BRAIN] State: " .. tostring(currentState) .. " → " .. tostring(detectedState))
-            currentState = detectedState
+            if detectedState ~= currentState then
+                log("[BRAIN] State: " .. tostring(currentState) .. " → " .. tostring(detectedState))
+                currentState = detectedState
 
-            if detectedState == "lobby" then
-                activeModeRunning = nil  -- reset on return to lobby
-                onLobby()
-            elseif detectedState == "ingame" then
-                onIngame()
+                if detectedState == "lobby" then
+                    activeModeRunning = nil
+                    onLobby()
+                elseif detectedState == "ingame" then
+                    onIngame()
+                end
             end
         end
+    end)
+    getgenv()._samlongBrainRunning = false
+    if not ok then
+        log("[BRAIN] Fatal error: " .. tostring(err))
     end
 end)
