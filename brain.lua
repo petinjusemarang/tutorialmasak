@@ -91,6 +91,92 @@ local function log(msg)
 end
 
 -- ═══════════════════════════════════
+--  WRONG GAME POPUP
+-- ═══════════════════════════════════
+local function showWrongGamePopup(shouldBe)
+    pcall(function()
+        local pg = player:FindFirstChild("PlayerGui")
+        if not pg then return end
+        local ex = pg:FindFirstChild("SamlongWrongGame")
+        if ex then ex:Destroy() end
+
+        local gui = Instance.new("ScreenGui")
+        gui.Name           = "SamlongWrongGame"
+        gui.ResetOnSpawn   = false
+        gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+        gui.DisplayOrder   = 999
+        gui.Parent         = pg
+
+        local overlay = Instance.new("Frame", gui)
+        overlay.Size                   = UDim2.new(1, 0, 1, 0)
+        overlay.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
+        overlay.BackgroundTransparency = 0.45
+        overlay.BorderSizePixel        = 0
+        overlay.ZIndex                 = 100
+
+        local box = Instance.new("Frame", gui)
+        box.Size             = UDim2.new(0, 540, 0, 230)
+        box.Position         = UDim2.new(0.5, -270, 0.5, -115)
+        box.BackgroundColor3 = Color3.fromRGB(170, 15, 15)
+        box.BorderSizePixel  = 0
+        box.ZIndex           = 101
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 16)
+
+        local topBar = Instance.new("Frame", box)
+        topBar.Size             = UDim2.new(1, 0, 0, 7)
+        topBar.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+        topBar.BorderSizePixel  = 0
+        topBar.ZIndex           = 102
+        Instance.new("UICorner", topBar).CornerRadius = UDim.new(0, 16)
+
+        local title = Instance.new("TextLabel", box)
+        title.Size                   = UDim2.new(1, 0, 0, 60)
+        title.Position               = UDim2.new(0, 0, 0, 15)
+        title.BackgroundTransparency = 1
+        title.Text                   = "⚠️  GAME TIDAK SESUAI"
+        title.TextColor3             = Color3.fromRGB(255, 255, 255)
+        title.Font                   = Enum.Font.GothamBold
+        title.TextSize               = 28
+        title.TextXAlignment         = Enum.TextXAlignment.Center
+        title.ZIndex                 = 102
+
+        local div = Instance.new("Frame", box)
+        div.Size             = UDim2.new(1, -40, 0, 2)
+        div.Position         = UDim2.new(0, 20, 0, 78)
+        div.BackgroundColor3 = Color3.fromRGB(220, 60, 60)
+        div.BorderSizePixel  = 0
+        div.ZIndex           = 102
+
+        local msg = Instance.new("TextLabel", box)
+        msg.Size                   = UDim2.new(1, -20, 0, 90)
+        msg.Position               = UDim2.new(0, 10, 0, 88)
+        msg.BackgroundTransparency = 1
+        msg.Text                   = player.Name .. " SEHARUSNYA MASUK KE MAP:\n" .. shouldBe
+        msg.TextColor3             = Color3.fromRGB(255, 230, 60)
+        msg.Font                   = Enum.Font.GothamBold
+        msg.TextSize               = 22
+        msg.TextWrapped            = true
+        msg.TextXAlignment         = Enum.TextXAlignment.Center
+        msg.ZIndex                 = 102
+
+        local okBtn = Instance.new("TextButton", box)
+        okBtn.Size                   = UDim2.new(0, 160, 0, 36)
+        okBtn.Position               = UDim2.new(0.5, -80, 0, 184)
+        okBtn.BackgroundColor3       = Color3.fromRGB(220, 50, 50)
+        okBtn.BorderSizePixel        = 0
+        okBtn.Text                   = "OK, MENGERTI"
+        okBtn.TextColor3             = Color3.fromRGB(255, 255, 255)
+        okBtn.Font                   = Enum.Font.GothamBold
+        okBtn.TextSize               = 14
+        okBtn.ZIndex                 = 103
+        Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 8)
+        okBtn.MouseButton1Click:Connect(function()
+            gui:Destroy()
+        end)
+    end)
+end
+
+-- ═══════════════════════════════════
 --  QUEUE ON TELEPORT
 --  Antri script untuk auto-run saat tiba di place baru.
 --  Support: Synapse X, KRNL, dan executor lain yg expose queue_on_teleport.
@@ -1576,7 +1662,9 @@ local function onIngame()
         local targetGame = (data.game or "CDID"):upper()
         if targetGame == "DDS" then
             if game.PlaceId ~= PLACE_IDS.DDS then
+                showWrongGamePopup("DDS (Drag Drive Simulator)")
                 log("[INGAME] Job requires DDS, teleporting...")
+                task.wait(3)
                 activeModeRunning = "dds"
                 queueOnTeleport(AUTOEXEC)
                 game:GetService("TeleportService"):Teleport(PLACE_IDS.DDS, player)
@@ -1651,7 +1739,9 @@ if game.PlaceId == PLACE_IDS.DDS then
 
             local targetGame = data and (data.game or "CDID"):upper() or "CDID"
             if targetGame ~= "DDS" then
+                showWrongGamePopup("CDID (Car Driving Indonesia)")
                 log("[DDS] Job is CDID, teleporting back...")
+                task.wait(3)
                 queueOnTeleport(AUTOEXEC)
                 game:GetService("TeleportService"):Teleport(PLACE_IDS.CDID, player)
                 return
