@@ -336,28 +336,6 @@ end)
 --  SAMLONG LOBBY SYSTEM
 --  Auto return to lobby on stuck/disconnect
 -- ═══════════════════════════════════
-pcall(function()
-    CoreGui:FindFirstChild("SamlongLobbyGUI"):Destroy()
-end)
-
-local lobbyGui = Instance.new("ScreenGui")
-lobbyGui.Name = "SamlongLobbyGUI"
-lobbyGui.Parent = CoreGui
-
-local lobbyBtn = Instance.new("TextButton")
-lobbyBtn.Parent = lobbyGui
-lobbyBtn.Size = UDim2.new(0, 180, 0, 45)
-lobbyBtn.Position = UDim2.new(0.5, -90, 0.8, 0)
-lobbyBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-lobbyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-lobbyBtn.Font = Enum.Font.GothamBold
-lobbyBtn.TextSize = 15
-lobbyBtn.Text = "RETURN LOBBY"
-lobbyBtn.Active = true
-lobbyBtn.Draggable = true
-lobbyBtn.BorderSizePixel = 0
-Instance.new("UICorner", lobbyBtn).CornerRadius = UDim.new(0, 10)
-
 local function ReturnLobby()
     local success, err = pcall(function()
         local realBtn = player.PlayerGui
@@ -366,22 +344,11 @@ local function ReturnLobby()
     end)
 
     if success then
-        lobbyBtn.Text = "RETURNING..."
+        log("[LOBBY] Returning to lobby...")
     else
-        lobbyBtn.Text = "FAILED"
-        warn(err)
-    end
-
-    task.wait(2)
-
-    if lobbyBtn and lobbyBtn.Parent then
-        lobbyBtn.Text = "RETURN LOBBY"
+        log("[LOBBY] ReturnLobby failed: " .. tostring(err))
     end
 end
-
-lobbyBtn.MouseButton1Click:Connect(function()
-    ReturnLobby()
-end)
 
 -- Auto reconnect on disconnect
 task.spawn(function()
