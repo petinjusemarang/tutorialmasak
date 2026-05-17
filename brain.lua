@@ -1630,6 +1630,21 @@ local function onLobby()
             log("[LOBBY] Belum ada order, retry " .. retries .. "/12 in 30s")
             task.wait(30)
             if currentState ~= "lobby" then return end
+
+            -- Re-check UI label first (popup mungkin baru dibuka setelah poll awal)
+            if label then
+                local uiRetry = label.Text
+                if uiRetry ~= "" and uiRetry ~= "None" then
+                    serverCode = uiRetry
+                    log("[LOBBY] UI code (retry " .. retries .. "): " .. uiRetry .. " → syncing")
+                    setPS(username, uiRetry)
+                    task.wait(1)
+                    local fresh = getPS(username)
+                    if fresh then data = fresh end
+                    break
+                end
+            end
+
             local fresh = getPS(username)
             if fresh then
                 data = fresh
