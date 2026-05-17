@@ -1627,8 +1627,8 @@ local function onLobby()
         while not serverCode and currentState == "lobby" do
             retries += 1
             if retries > 12 then log("[LOBBY] No code after 6min, abort"); return end
-            log("[LOBBY] Belum ada order, retry " .. retries .. "/12 in 30s")
-            task.wait(30)
+            log("[LOBBY] Belum ada order, retry " .. retries .. "/12 in 15s")
+            task.wait(15)
             if currentState ~= "lobby" then return end
 
             -- Re-check UI label first (popup mungkin baru dibuka setelah poll awal)
