@@ -329,7 +329,7 @@ task.spawn(function()
         -- Execute DDS gameplay loader (key/script are Luvio executor globals)
         local qtOK = queueOnTeleport(AUTOEXEC)
         log("QoT registered: " .. tostring(qtOK))
-        getgenv().key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
+        getgenv().key    = "411572f1-0a19-42fc-ab0c-f386ad74bad6"
         getgenv().script = "DDS"
         pcall(function()
             loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
