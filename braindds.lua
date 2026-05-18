@@ -28,7 +28,6 @@ local IS_LOBBY        = (game.PlaceId == DDS_LOBBY_PLACE)
 
 -- ═══════════════════════════════════
 --  QUEUE ON TELEPORT
---  Agar braindds.lua auto-run setelah Luvio teleport ke Mandalika
 -- ═══════════════════════════════════
 local AUTOEXEC = [[
 if not game:IsLoaded() then game.Loaded:Wait() end
@@ -250,7 +249,6 @@ local _lastValue = nil
 local function safeApiUpdate(value)
     local now = os.clock()
     if now - _lastSend < 60 then return end
-    -- Kirim jika nilai berubah, ATAU sudah 10 menit (heartbeat anti-DISCONNECTED)
     if value == _lastValue and now - _lastSend < 600 then return end
     _lastSend  = now
     _lastValue = value
@@ -266,6 +264,23 @@ player.Idled:Connect(function()
         VirtualUser:ClickButton2(Vector2.new())
     end)
 end)
+
+-- ═══════════════════════════════════
+--  EXECUTE WITH DELAY
+-- ═══════════════════════════════════
+local function executeWithDelay()
+    log("Menunggu 15 detik sebelum execute DDS loader...")
+    for i = 15, 1, -1 do
+        log("Execute dalam " .. i .. " detik...")
+        task.wait(1)
+    end
+    log("Executing DDS loader sekarang!")
+    getgenv().key    = "411572f1-0a19-42fc-ab0c-f386ad74bad6"
+    getgenv().script = "DDS"
+    pcall(function()
+        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+    end)
+end
 
 -- ═══════════════════════════════════
 --  MAIN
@@ -293,10 +308,9 @@ task.spawn(function()
             return
         end
 
-        local gameTag   = (data.game or "CDID"):upper()
+        local gameTag = (data.game or "CDID"):upper()
 
         if gameTag ~= "DDS" then
-            -- API bilang CDID tapi player ada di DDS → player masuk game yang salah
             log("[WARN] Job adalah " .. gameTag .. " tapi player di DDS! Hentikan.")
             showWrongGamePopup("CDID (Car Driving Indonesia)")
             return
@@ -306,7 +320,7 @@ task.spawn(function()
 
         -- Track RPValue
         task.spawn(function()
-            local pd    = player:WaitForChild("PlayerData", 15)
+            local pd = player:WaitForChild("PlayerData", 15)
             if not pd then log("PlayerData not found"); return end
             local rpVal = pd:WaitForChild("RPValue", 10)
             if not rpVal then log("RPValue not found"); return end
@@ -326,14 +340,10 @@ task.spawn(function()
             end
         end)
 
-        -- Execute DDS gameplay loader (key/script are Luvio executor globals)
+        -- Queue on teleport & execute dengan delay 15 detik
         local qtOK = queueOnTeleport(AUTOEXEC)
         log("QoT registered: " .. tostring(qtOK))
-        getgenv().key    = "411572f1-0a19-42fc-ab0c-f386ad74bad6"
-        getgenv().script = "DDS"
-        pcall(function()
-            loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
-        end)
+        executeWithDelay()
     end)
     getgenv()._samlongDDSRunning = false
     if not ok then
