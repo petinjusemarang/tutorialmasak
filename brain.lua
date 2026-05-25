@@ -1452,7 +1452,7 @@ local function startJokiUang()
         getgenv().teleportTime        = "50.5"
         getgenv().recallJobTime       = "0.3"
         getgenv().optimizePerformance = true
-        script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP";
+        script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP"; -- key
 loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
     end)
 end
