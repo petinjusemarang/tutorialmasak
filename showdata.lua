@@ -113,13 +113,6 @@ local function formatUang(raw)
     end
 end
 
-local function ReturnLobby()
-    pcall(function()
-        local realBtn = player.PlayerGui
-            .Settings.Canvas.Main.CanvasGroup.ScrollingFrame.ReturnMenu
-        firesignal(realBtn.Activated)
-    end)
-end
 
 -- ═══════════════════════════════════
 --  GUI
@@ -221,10 +214,6 @@ task.spawn(function()
         )
         if elapsed >= 360 and not ng.Visible then
             ng.Visible = true
-            task.spawn(function()
-                task.wait(3)
-                ReturnLobby()
-            end)
         end
     end
 end)
