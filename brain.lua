@@ -87,6 +87,14 @@ ejectBtn.Text             = "⏏  EJECT BRAIN"
 ejectBtn.ZIndex           = 20
 Instance.new("UICorner", ejectBtn).CornerRadius = UDim.new(0, 6)
 
+-- Semua thread yang di-spawn disimpan di sini supaya bisa di-cancel semua waktu eject
+local _threads = {}
+local function safeSpawn(fn)
+    local t = task.spawn(fn)
+    _threads[#_threads + 1] = t
+    return t
+end
+
 local logs = ""
 local function log(msg)
     print("[BRAIN] " .. msg)
@@ -363,7 +371,7 @@ local function ReturnLobby()
 end
 
 -- Auto reconnect on disconnect
-task.spawn(function()
+safeSpawn(function()
     local promptGui = CoreGui:WaitForChild("RobloxPromptGui")
     local overlay = promptGui:WaitForChild("promptOverlay")
 
@@ -392,7 +400,7 @@ end
 
 local function startJumpLoop()
     stopMovementLoop()
-    activeMovementThread = task.spawn(function()
+    activeMovementThread = safeSpawn(function()
         local function getRandomCar()
             local ok, carList = pcall(function()
                 return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
@@ -452,7 +460,7 @@ end
 
 local function startNoJumpLoop()
     stopMovementLoop()
-    activeMovementThread = task.spawn(function()
+    activeMovementThread = safeSpawn(function()
         local function getRandomCar()
             local ok, carList = pcall(function()
                 return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
@@ -668,11 +676,11 @@ local function startMinigame()
         alerted              = false
     end)
 
-    task.spawn(updatePoint)
-    task.spawn(function()
+    safeSpawn(updatePoint)
+    safeSpawn(function()
         while true do updateLastPlayed(); task.wait(1) end
     end)
-    task.spawn(function()
+    safeSpawn(function()
         while true do
             if not alerted and os.difftime(os.time(), lastValChange) >= STUCK_THRESHOLD then
                 popupFrame.Visible = true
@@ -686,7 +694,7 @@ local function startMinigame()
         end
     end)
 
-    task.spawn(function()
+    safeSpawn(function()
         while true do
             task.wait(60)
             local guiInst = player:FindFirstChild("PlayerGui")
@@ -1029,7 +1037,7 @@ local function startRace()
     local function readyUp() remotes.ToggleReady:FireServer() end
 
     local POINTS_LABEL
-    task.spawn(function()
+    safeSpawn(function()
         POINTS_LABEL = player:WaitForChild("PlayerGui"):WaitForChild("Race")
             :WaitForChild("Container"):WaitForChild("Shop"):WaitForChild("TitleBar")
             :WaitForChild("PointsPill"):WaitForChild("Value")
@@ -1045,7 +1053,7 @@ local function startRace()
         return POINTS_LABEL and POINTS_LABEL.Text or "0 PTS"
     end
 
-    task.spawn(function()
+    safeSpawn(function()
         local rc = player:WaitForChild("PlayerGui"):WaitForChild("Race"):WaitForChild("Container")
         rc.ChildAdded:Connect(function(child)
             if child.Name == "Scoreboard" then
@@ -1053,7 +1061,7 @@ local function startRace()
             end
         end)
     end)
-    task.spawn(function()
+    safeSpawn(function()
         while true do
             task.wait(10)
             local nf = workspace:FindFirstChild("NPCVehicle")
@@ -1202,7 +1210,7 @@ local function startRace()
         refreshRaceGUI()
     end
 
-    task.spawn(function() while true do task.wait(1); refreshRaceGUI() end end)
+    safeSpawn(function() while true do task.wait(1); refreshRaceGUI() end end)
 
     local function sendDiscordWebhook()
         local elapsed = os.clock() - SESSION_START
@@ -1236,23 +1244,23 @@ local function startRace()
         end)
     end
 
-    task.spawn(function()
+    safeSpawn(function()
         while not RUNNING do task.wait(5) end
         task.wait(10); sendDiscordWebhook()
         while true do task.wait(1800); if RUNNING then sendDiscordWebhook() end end
     end)
 
-    task.spawn(function()
+    safeSpawn(function()
         task.wait(25)
         sendInit(tostring(getPointsNum()))
         apiUpdate(player.Name, getPointsNum())
     end)
-    task.spawn(function()
+    safeSpawn(function()
         while not RUNNING do task.wait(5) end
         task.wait(10); sendUpdate(tostring(getPointsNum()))
         while true do task.wait(60); if RUNNING then sendUpdate(tostring(getPointsNum())) end end
     end)
-    task.spawn(function()
+    safeSpawn(function()
         while not RUNNING do task.wait(5) end
         task.wait(15)
         while true do
@@ -1261,7 +1269,7 @@ local function startRace()
         end
     end)
 
-    task.spawn(function()
+    safeSpawn(function()
         while true do
             task.wait(1)
             if not RUNNING then continue end
@@ -1296,7 +1304,7 @@ local function startRace()
             task.wait(2); selectRandomCar(); task.wait(0.5); readyUp()
             STATUS_TEXT = "Ready!"
             if MODE_RACE == "WIN" then
-                task.spawn(function()
+                safeSpawn(function()
                     while RUNNING and not isRaceHUDVisible() do task.wait(5); remotes.StartRace:FireServer() end
                 end)
             end
@@ -1421,7 +1429,7 @@ local function startJokiUang()
             end
         end)
 
-        task.spawn(function()
+        safeSpawn(function()
             while true do
                 task.wait(1)
                 local elapsed = os.time() - lastEarn
@@ -1433,7 +1441,7 @@ local function startJokiUang()
                 if elapsed >= 360 and not ng.Visible then
                     ng.Visible = true
                     log("[UANG] Supir nganggur! Auto return to lobby...")
-                    task.spawn(function()
+                    safeSpawn(function()
                         task.wait(3)
                         ReturnLobby()
                     end)
@@ -1441,7 +1449,7 @@ local function startJokiUang()
             end
         end)
 
-        task.spawn(function()
+        safeSpawn(function()
             task.wait(3)
             local initMoney = formatUang(moneyLabel.Text)
             local initRaw   = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
@@ -1476,7 +1484,7 @@ local function startDDS()
     log("[DDS] Starting for " .. player.Name)
 
     -- Track RPValue → kirim ke Sheets + API
-    task.spawn(function()
+    safeSpawn(function()
         local pd    = player:WaitForChild("PlayerData", 15)
         if not pd then log("[DDS] PlayerData not found"); return end
         local rpVal = pd:WaitForChild("RPValue", 10)
@@ -1571,7 +1579,7 @@ local activeModeRunning = nil  -- prevents re-running same mode
 local function onLobby()
     log("[LOBBY] Started")
 
-    task.spawn(function()
+    safeSpawn(function()
         task.wait(3)
 
         local username = player.Name
@@ -1704,7 +1712,7 @@ local function onIngame()
         return
     end
 
-    task.spawn(function()
+    safeSpawn(function()
         -- Wait for character fully ready
         local char = player.Character or player.CharacterAdded:Wait()
         local waited = 0
@@ -1794,7 +1802,7 @@ end
 -- ─────────────────────────────────────────
 if game.PlaceId == PLACE_IDS.DDS then
     log("[BRAIN] DDS place detected")
-    task.spawn(function()
+    safeSpawn(function()
         local ok, err = pcall(function()
             local char = player.Character or player.CharacterAdded:Wait()
             local w = 0
@@ -1832,13 +1840,15 @@ local mainLoopThread = nil
 
 local function eject()
     getgenv()._samlongBrainRunning = false
-    stopMovementLoop()
+    -- Cancel semua thread yang pernah di-spawn (minigame loop, uang loop, race loop, reconnect, dll.)
+    for _, t in ipairs(_threads) do pcall(task.cancel, t) end
     if mainLoopThread then pcall(task.cancel, mainLoopThread) end
+    -- Destroy semua GUI
     pcall(function() logGui:Destroy() end)
     pcall(function() if CoreGui:FindFirstChild("SamlongGUI") then CoreGui.SamlongGUI:Destroy() end end)
     pcall(function() if CoreGui:FindFirstChild("SamlongJokiUI") then CoreGui.SamlongJokiUI:Destroy() end end)
     pcall(function() if player.PlayerGui:FindFirstChild("AutoRaceGUI") then player.PlayerGui.AutoRaceGUI:Destroy() end end)
-    print("[BRAIN] EJECTED — aman eksekusi script lain")
+    print("[BRAIN] EJECTED — semua thread dihentikan, aman eksekusi script lain")
 end
 
 ejectBtn.MouseButton1Click:Connect(eject)
@@ -1848,7 +1858,7 @@ ejectBtn.MouseButton1Click:Connect(eject)
 -- ─────────────────────────────────────────
 log("[BRAIN] Starting state loop")
 
-mainLoopThread = task.spawn(function()
+mainLoopThread = safeSpawn(function()
     local ok, err = pcall(function()
         while true do
             task.wait(2)
