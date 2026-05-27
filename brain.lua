@@ -58,14 +58,14 @@ logGui.Name         = "SamlongBrainLog"
 logGui.ResetOnSpawn = false
 
 local logFrame = Instance.new("Frame", logGui)
-logFrame.Size            = UDim2.new(0, 420, 0, 250)
+logFrame.Size            = UDim2.new(0, 420, 0, 295)
 logFrame.Position        = UDim2.new(0, 20, 0, 100)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 logFrame.BackgroundTransparency = 0.15
 logFrame.BorderSizePixel = 0
 
 local logText = Instance.new("TextLabel", logFrame)
-logText.Size                   = UDim2.new(1, -10, 1, -10)
+logText.Size                   = UDim2.new(1, -10, 0, 240)
 logText.Position               = UDim2.new(0, 5, 0, 5)
 logText.BackgroundTransparency = 1
 logText.TextXAlignment         = Enum.TextXAlignment.Left
@@ -74,6 +74,18 @@ logText.Font                   = Enum.Font.Code
 logText.TextSize               = 13
 logText.TextColor3             = Color3.new(1, 1, 1)
 logText.TextWrapped            = true
+
+local ejectBtn = Instance.new("TextButton", logFrame)
+ejectBtn.Size            = UDim2.new(1, -10, 0, 36)
+ejectBtn.Position        = UDim2.new(0, 5, 1, -41)
+ejectBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+ejectBtn.BorderSizePixel = 0
+ejectBtn.Font            = Enum.Font.GothamBold
+ejectBtn.TextSize        = 14
+ejectBtn.TextColor3      = Color3.new(1, 1, 1)
+ejectBtn.Text            = "⏏  EJECT BRAIN"
+ejectBtn.ZIndex          = 10
+Instance.new("UICorner", ejectBtn).CornerRadius = UDim.new(0, 6)
 
 local logs = ""
 local function log(msg)
@@ -1814,11 +1826,29 @@ if game.PlaceId == PLACE_IDS.DDS then
 end
 
 -- ─────────────────────────────────────────
+--  EJECT
+-- ─────────────────────────────────────────
+local mainLoopThread = nil
+
+local function eject()
+    getgenv()._samlongBrainRunning = false
+    stopMovementLoop()
+    if mainLoopThread then pcall(task.cancel, mainLoopThread) end
+    pcall(function() logGui:Destroy() end)
+    pcall(function() if CoreGui:FindFirstChild("SamlongGUI") then CoreGui.SamlongGUI:Destroy() end end)
+    pcall(function() if CoreGui:FindFirstChild("SamlongJokiUI") then CoreGui.SamlongJokiUI:Destroy() end end)
+    pcall(function() if player.PlayerGui:FindFirstChild("AutoRaceGUI") then player.PlayerGui.AutoRaceGUI:Destroy() end end)
+    print("[BRAIN] EJECTED — aman eksekusi script lain")
+end
+
+ejectBtn.MouseButton1Click:Connect(eject)
+
+-- ─────────────────────────────────────────
 --  MAIN DETECTION LOOP
 -- ─────────────────────────────────────────
 log("[BRAIN] Starting state loop")
 
-task.spawn(function()
+mainLoopThread = task.spawn(function()
     local ok, err = pcall(function()
         while true do
             task.wait(2)
