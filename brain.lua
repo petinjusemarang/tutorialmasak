@@ -58,14 +58,14 @@ logGui.Name         = "SamlongBrainLog"
 logGui.ResetOnSpawn = false
 
 local logFrame = Instance.new("Frame", logGui)
-logFrame.Size            = UDim2.new(0, 420, 0, 295)
+logFrame.Size            = UDim2.new(0, 420, 0, 250)
 logFrame.Position        = UDim2.new(0, 20, 0, 100)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 logFrame.BackgroundTransparency = 0.15
 logFrame.BorderSizePixel = 0
 
 local logText = Instance.new("TextLabel", logFrame)
-logText.Size                   = UDim2.new(1, -10, 0, 240)
+logText.Size                   = UDim2.new(1, -10, 1, -10)
 logText.Position               = UDim2.new(0, 5, 0, 5)
 logText.BackgroundTransparency = 1
 logText.TextXAlignment         = Enum.TextXAlignment.Left
@@ -75,16 +75,16 @@ logText.TextSize               = 13
 logText.TextColor3             = Color3.new(1, 1, 1)
 logText.TextWrapped            = true
 
-local ejectBtn = Instance.new("TextButton", logFrame)
-ejectBtn.Size            = UDim2.new(1, -10, 0, 36)
-ejectBtn.Position        = UDim2.new(0, 5, 1, -41)
+local ejectBtn = Instance.new("TextButton", logGui)
+ejectBtn.Size             = UDim2.new(0, 140, 0, 34)
+ejectBtn.Position         = UDim2.new(0, 10, 0, 10)
 ejectBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
-ejectBtn.BorderSizePixel = 0
-ejectBtn.Font            = Enum.Font.GothamBold
-ejectBtn.TextSize        = 14
-ejectBtn.TextColor3      = Color3.new(1, 1, 1)
-ejectBtn.Text            = "⏏  EJECT BRAIN"
-ejectBtn.ZIndex          = 10
+ejectBtn.BorderSizePixel  = 0
+ejectBtn.Font             = Enum.Font.GothamBold
+ejectBtn.TextSize         = 13
+ejectBtn.TextColor3       = Color3.new(1, 1, 1)
+ejectBtn.Text             = "⏏  EJECT BRAIN"
+ejectBtn.ZIndex           = 20
 Instance.new("UICorner", ejectBtn).CornerRadius = UDim.new(0, 6)
 
 local logs = ""
