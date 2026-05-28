@@ -20,9 +20,7 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 -- ═══════════════════════════════════
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService        = game:GetService("RunService")
 local HttpService       = game:GetService("HttpService")
-local Lighting          = game:GetService("Lighting")
 local CoreGui           = game:GetService("CoreGui")
 local VirtualUser       = game:GetService("VirtualUser")
 local player            = Players.LocalPlayer
@@ -714,633 +712,6 @@ local function startMinigame()
 end
 
 -- ═══════════════════════════════════
---  MODE: RACE
--- ═══════════════════════════════════
-local function startRace()
-    local char = player.Character or player.CharacterAdded:Wait()
-    local root = char:WaitForChild("HumanoidRootPart")
-    player.CharacterAdded:Connect(function(newChar)
-        char = newChar
-        root = newChar:WaitForChild("HumanoidRootPart")
-    end)
-
-    local remotes  = rp:WaitForChild("RaceRemotes")
-    local NPC_PATH = workspace:FindFirstChild("Etc")
-        and workspace.Etc:FindFirstChild("Race")
-        and workspace.Etc.Race:FindFirstChild("NPC")
-        and workspace.Etc.Race.NPC:FindFirstChild("DA0ZA")
-    if not NPC_PATH then
-        log("[ERROR] NPC_PATH (DA0ZA) tidak ditemukan, race mode abort")
-        return
-    end
-    local PROMPT_PATH = NPC_PATH.HumanoidRootPart.Prompt
-
-    local RUNNING         = false
-    local MODE_RACE       = "LOSE"
-    local RACE_COUNT      = 0
-    local STATUS_TEXT     = "Idle"
-    local MAP_DELETED     = false
-    local SESSION_START   = os.clock()
-    local POINTS_AT_START = 0
-    local SPEED           = { WIN = 250, LOSE = 200 }
-    local ACCEL           = 5
-
-    local CHECKPOINTS = {
-        Vector3.new(126.484, 3.234, -413.750),
-        Vector3.new(125.373, 3.228, -1272.303),
-        Vector3.new(-173.397, 3.228, -2036.829),
-        Vector3.new(-1007.555, 3.228, -2168.953),
-        Vector3.new(-1855.214, -6.747, -2227.516),
-        Vector3.new(-2649.424, -21.988, -2553.774),
-        Vector3.new(-3326.388, -32.172, -3050.381),
-        Vector3.new(-2964.084, -34.634, -3808.800),
-        Vector3.new(-2547.419, -32.170, -4560.326),
-        Vector3.new(-2131.537, -38.320, -5309.163),
-        Vector3.new(-1701.094, -34.047, -6051.912),
-        Vector3.new(-1256.946, -69.740, -6784.079),
-        Vector3.new(-939.994,  -54.307, -7576.575),
-        Vector3.new(-1476.921, -54.550, -8167.188),
-        Vector3.new(-2226.989, -54.478, -8583.185),
-        Vector3.new(-2952.778, -46.232, -9039.672),
-        Vector3.new(-3521.273, -41.104, -9671.608),
-        Vector3.new(-3932.669, -25.455, -10419.997),
-        Vector3.new(-3815.698, -25.321, -11207.516),
-        Vector3.new(-3270.269, -86.230, -11871.715),
-        Vector3.new(-2767.950, -66.776, -12560.823),
-        Vector3.new(-2530.768, -39.475, -13348.704),
-        Vector3.new(-2808.955, -38.912, -14160.520),
-        Vector3.new(-3094.195, -35.982, -14973.083),
-        Vector3.new(-3364.130, -48.026, -15782.974),
-        Vector3.new(-3506.115, -34.960, -16628.467),
-        Vector3.new(-3555.211, -76.962, -17489.098),
-        Vector3.new(-3576.361, -88.727, -18339.076),
-        Vector3.new(-3561.386, -63.232, -19195.998),
-        Vector3.new(-3541.395, -75.296, -20053.066),
-        Vector3.new(-3435.542, -93.999, -20904.252),
-        Vector3.new(-3291.255, -50.174, -21745.605),
-        Vector3.new(-3142.049, -76.561, -22592.246),
-        Vector3.new(-3129.446, -79.572, -23450.859),
-        Vector3.new(-3130.823, -79.572, -24307.510),
-        Vector3.new(-3130.794, -74.634, -25167.229),
-        Vector3.new(-3131.090, -56.682, -26026.822),
-        Vector3.new(-3127.974, -79.572, -26880.486),
-        Vector3.new(-3128.549, -79.572, -27740.045),
-    }
-
-    local WEBHOOK_URLS = {
-        "https://discord.com/api/webhooks/1486677758838050886/-4KZKc9XPfhenUsbx5JAmxPHLxpXguU1whbMJYkRyzyfayFWUqnmxV7DRh8dvgFJOxCd",
-        "https://discord.com/api/webhooks/1486689239914774600/NNXdfR1GF9CaxVAM4vbrbsAV3pXizxQSHs_PqM0CArPezApql7zEKZQR0rEMUfAl3gh8",
-        "https://discord.com/api/webhooks/1486689242179436624/tqSUuI6ww3ok98-qv1NnM5S7UWmD6W_Rq44s034KIZx9Zazh44F-1Nn8GK1Vw5A0dLfN",
-        "https://discord.com/api/webhooks/1486689243630796874/8O63v71D3mX8mAzfXaXtal5HxN20CIPHfPzxx_I3KztmefI5xzWR4ro0yasJZbF-1rG7",
-        "https://discord.com/api/webhooks/1486689252732436590/xjCM3rmF-Y6H9CRKRO8nUnnGnS94",
-    }
-
-    local function corner(p, r)
-        local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 8); c.Parent = p
-    end
-
-    local function createPlatform(pos, size)
-        local part = Instance.new("Part")
-        part.Size          = size or Vector3.new(100, 3, 100)
-        part.Anchored      = true
-        part.Material      = Enum.Material.Asphalt
-        part.Color         = Color3.fromRGB(50, 50, 50)
-        part.Position      = pos - Vector3.new(0, 3, 0)
-        part.CanCollide    = true
-        part.TopSurface    = Enum.SurfaceType.Smooth
-        part.BottomSurface = Enum.SurfaceType.Smooth
-        part.Parent        = workspace
-    end
-
-    local function createRoad(from, to)
-        local fromPos = Vector3.new(from.X, from.Y - 6, from.Z)
-        local toPos   = Vector3.new(to.X, to.Y, to.Z)
-        local mid     = (fromPos + toPos) / 2
-        local dist    = (toPos - fromPos).Magnitude
-        local part    = Instance.new("Part")
-        part.Size          = Vector3.new(100, 3, dist + 200)
-        part.Anchored      = true
-        part.Material      = Enum.Material.Asphalt
-        part.Color         = Color3.fromRGB(45, 45, 45)
-        part.CanCollide    = true
-        part.TopSurface    = Enum.SurfaceType.Smooth
-        part.BottomSurface = Enum.SurfaceType.Smooth
-        part.CFrame        = CFrame.lookAt(mid, toPos)
-        part.Parent        = workspace
-    end
-
-    local function deleteMap()
-        if MAP_DELETED then return end
-        MAP_DELETED = true
-        pcall(function()
-            for _, v in pairs(workspace.Map:GetChildren()) do v:Destroy() end
-        end)
-        for _, name in ipairs({
-            "Landmarks","Lampu Merah","Gapura","Lights","Tree","StreetLamp_Pantura",
-            "OwnableHouse","NightLight","NPCVehicle","Trees","Bushes","Plants",
-            "Decorations","Props","StreetProps","TrafficLight"
-        }) do
-            local obj = workspace:FindFirstChild(name)
-            if obj then obj:Destroy() end
-        end
-        Lighting.GlobalShadows = false
-        Lighting.FogEnd        = 1e10
-        Lighting.Brightness    = 1
-        Lighting.ClockTime     = 14
-        pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
-    end
-
-    local function buildPlatforms()
-        for i = 1, #CHECKPOINTS - 1 do
-            local from  = CHECKPOINTS[i]
-            local to    = CHECKPOINTS[i + 1]
-            local diffY = math.abs(to.Y - from.Y)
-            if diffY > 10 then
-                local p1 = from + (to - from) * 0.25
-                local p2 = from + (to - from) * 0.5
-                local p3 = from + (to - from) * 0.75
-                createRoad(from, p1); createRoad(p1, p2); createRoad(p2, p3); createRoad(p3, to)
-            else
-                createRoad(from, to)
-            end
-        end
-        local npcRoot = NPC_PATH:FindFirstChild("HumanoidRootPart")
-        if npcRoot then
-            createRoad(npcRoot.Position, CHECKPOINTS[1])
-            createPlatform(npcRoot.Position - Vector3.new(0, 3, 0), Vector3.new(100, 3, 100))
-        end
-        createPlatform(CHECKPOINTS[#CHECKPOINTS])
-    end
-
-    local function getVehicle()
-        local c   = player.Character or player.CharacterAdded:Wait()
-        local hum = c:FindFirstChild("Humanoid")
-        if hum and hum.SeatPart then
-            local v = hum.SeatPart:FindFirstAncestorOfClass("Model")
-            if v and v.PrimaryPart then return v end
-        end
-    end
-
-    local function isRaceHUDVisible()
-        local ok, val = pcall(function() return player.PlayerGui.Race.Container.RaceHUD.Visible end)
-        return ok and val
-    end
-
-    local function runRaceLoop()
-        STATUS_TEXT = "Racing..."
-        local vehicle = getVehicle()
-        if not vehicle then STATUS_TEXT = "No vehicle!"; return end
-        local vRoot = vehicle.PrimaryPart
-        if not vRoot then return end
-
-        local total    = #CHECKPOINTS
-        local maxSpeed = MODE_RACE == "WIN" and SPEED.WIN or SPEED.LOSE
-
-        local bodyVel = Instance.new("BodyVelocity")
-        bodyVel.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        bodyVel.Parent   = vRoot
-
-        local bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-        bodyGyro.P         = 10000
-        bodyGyro.Parent    = vRoot
-
-        local speed     = 0
-        local currentCP = 1
-        local lastPos   = vRoot.Position
-        local stuckTime = 0
-        local raceStart = tick()
-
-        local connection
-        connection = RunService.Heartbeat:Connect(function()
-            if not RUNNING or not getVehicle() or currentCP > total then
-                pcall(function() bodyVel:Destroy() end)
-                pcall(function() bodyGyro:Destroy() end)
-                if connection then connection:Disconnect() end
-                return
-            end
-            local target    = CHECKPOINTS[currentCP]
-            local direction = target - vRoot.Position
-            local distance  = direction.Magnitude
-            speed           = math.min(speed + ACCEL, maxSpeed)
-            bodyVel.Velocity = direction.Unit * speed
-            bodyGyro.CFrame  = CFrame.lookAt(vRoot.Position, target)
-            if tick() - raceStart > 5 then
-                if (vRoot.Position - lastPos).Magnitude < 1 then stuckTime += 1
-                else stuckTime = 0 end
-                lastPos = vRoot.Position
-                if stuckTime > 30 then
-                    stuckTime        = 0
-                    bodyVel.Velocity = Vector3.zero
-                    local fwd = direction.Unit * 50
-                    vRoot.CFrame   = CFrame.new(vRoot.Position.X + fwd.X, vRoot.Position.Y + 20, vRoot.Position.Z + fwd.Z)
-                    vRoot.Anchored = true
-                    task.defer(function()
-                        for _ = 1, 20 do
-                            if not vRoot or not vRoot.Parent then break end
-                            vRoot.CFrame = vRoot.CFrame - Vector3.new(0, 1, 0)
-                            task.wait(0.03)
-                        end
-                        if vRoot and vRoot.Parent then vRoot.Anchored = false end
-                    end)
-                end
-            end
-            if distance < 15 then
-                currentCP += 1
-                if currentCP <= total then
-                    STATUS_TEXT = string.format("CP %d/%d", currentCP, total)
-                end
-            end
-        end)
-
-        local timeout = 0
-        repeat task.wait(0.2); timeout += 0.2
-        until currentCP > total or timeout >= 300 or not RUNNING or not getVehicle()
-        if connection and connection.Connected then connection:Disconnect() end
-        pcall(function() bodyVel:Destroy() end)
-        pcall(function() bodyGyro:Destroy() end)
-        if currentCP > total then
-            STATUS_TEXT = "Finished!"
-            local st = 0
-            while st < 3 and RUNNING do
-                if not isRaceHUDVisible() then break end
-                task.wait(0.5); st += 0.5
-            end
-        end
-    end
-
-    local function approachNPC()
-        local npcRoot = NPC_PATH:FindFirstChild("HumanoidRootPart")
-        if not npcRoot then return false end
-        local npcPos  = npcRoot.Position
-        local landPos = npcPos + npcRoot.CFrame.LookVector * 5
-        local delay   = MODE_RACE == "WIN" and 1 or 1.5
-        STATUS_TEXT   = string.format("NPC (%.0fs)...", delay)
-        task.wait(delay)
-        root.CFrame = CFrame.new(landPos.X, npcPos.Y + 3, landPos.Z)
-        task.wait(1)
-        return true
-    end
-
-    local function fireNPCPrompt()
-        local prompt = PROMPT_PATH
-        if prompt and prompt:IsA("ProximityPrompt") then
-            STATUS_TEXT = "Opening menu..."
-            fireproximityprompt(prompt)
-            return true
-        end
-        return false
-    end
-
-    local function waitMenuOpen()
-        local raceGuiWait = player.PlayerGui:WaitForChild("Race", 10)
-        if not raceGuiWait then return nil end
-        local container = raceGuiWait:WaitForChild("Container", 5)
-        if not container then return nil end
-        local raceMenu  = container:WaitForChild("RaceMenu", 5)
-        if not raceMenu then return nil end
-        local t = 0
-        repeat task.wait(0.1); t += 0.1 until raceMenu.Visible or t > 5
-        return raceMenu.Visible and raceMenu or nil
-    end
-
-    local function joinLobby(menu)
-        local lobbyList = menu:WaitForChild("JoinSection"):WaitForChild("LobbyList")
-        for _, lobby in pairs(lobbyList:GetChildren()) do
-            if lobby:IsA("Frame") and lobby.Name ~= "LobbyRowTemplate" then
-                local hostLabel = lobby:FindFirstChild("HostName", true)
-                if hostLabel and hostLabel.Text ~= player.Name then
-                    local id = tonumber(lobby.Name:match("%d+"))
-                    if id then remotes.JoinLobby:FireServer(id); return true end
-                end
-            end
-        end
-        return false
-    end
-
-    local function createLobby() remotes.CreateLobby:FireServer(player.Name .. "'s Lobby") end
-
-    local function selectRandomCar()
-        local ok, carList = pcall(function()
-            return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
-        end)
-        if not ok or not carList then return end
-        local cars = {}
-        for _, v in pairs(carList:GetChildren()) do
-            if v:IsA("Frame") then table.insert(cars, v.Name) end
-        end
-        if #cars == 0 then return end
-        local chosen = cars[math.random(1, #cars)]
-        remotes.SelectCar:FireServer(chosen, chosen)
-    end
-
-    local function readyUp() remotes.ToggleReady:FireServer() end
-
-    local POINTS_LABEL
-    safeSpawn(function()
-        POINTS_LABEL = player:WaitForChild("PlayerGui"):WaitForChild("Race")
-            :WaitForChild("Container"):WaitForChild("Shop"):WaitForChild("TitleBar")
-            :WaitForChild("PointsPill"):WaitForChild("Value")
-    end)
-
-    local function getPointsNum()
-        if POINTS_LABEL then
-            return tonumber((POINTS_LABEL.Text or ""):gsub("%D", "")) or 0
-        end
-        return 0
-    end
-    local function getPointsText()
-        return POINTS_LABEL and POINTS_LABEL.Text or "0 PTS"
-    end
-
-    safeSpawn(function()
-        local rc = player:WaitForChild("PlayerGui"):WaitForChild("Race"):WaitForChild("Container")
-        rc.ChildAdded:Connect(function(child)
-            if child.Name == "Scoreboard" then
-                task.wait(0.5); pcall(function() child:Destroy() end)
-            end
-        end)
-    end)
-    safeSpawn(function()
-        while true do
-            task.wait(10)
-            local nf = workspace:FindFirstChild("NPCVehicle")
-            if nf then nf:ClearAllChildren() end
-        end
-    end)
-
-    local oldGui = player.PlayerGui:FindFirstChild("AutoRaceGUI")
-    if oldGui then oldGui:Destroy() end
-    local raceGui = Instance.new("ScreenGui")
-    raceGui.Name           = "AutoRaceGUI"
-    raceGui.ResetOnSpawn   = false
-    raceGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    raceGui.Parent         = player.PlayerGui
-
-    local centerFrame = Instance.new("Frame", raceGui)
-    centerFrame.Size                   = UDim2.new(1, 0, 0, 220)
-    centerFrame.Position               = UDim2.new(0, 0, 0.5, -110)
-    centerFrame.BackgroundColor3       = Color3.fromRGB(5, 5, 10)
-    centerFrame.BackgroundTransparency = 0.1
-    centerFrame.BorderSizePixel        = 0
-
-    local rUsernameLabel = Instance.new("TextLabel", centerFrame)
-    rUsernameLabel.Size                   = UDim2.new(1, 0, 0, 35)
-    rUsernameLabel.Position               = UDim2.new(0, 0, 0, 5)
-    rUsernameLabel.BackgroundTransparency = 1
-    rUsernameLabel.Text                   = player.Name
-    rUsernameLabel.TextColor3             = Color3.fromRGB(255, 220, 80)
-    rUsernameLabel.Font                   = Enum.Font.GothamBold
-    rUsernameLabel.TextXAlignment         = Enum.TextXAlignment.Center
-    rUsernameLabel.TextScaled             = true
-
-    local pointsLabel = Instance.new("TextLabel", centerFrame)
-    pointsLabel.Size                   = UDim2.new(1, -10, 0, 65)
-    pointsLabel.Position               = UDim2.new(0, 5, 0, 38)
-    pointsLabel.BackgroundTransparency = 1
-    pointsLabel.Text                   = "0 PTS"
-    pointsLabel.TextColor3             = Color3.fromRGB(255, 215, 60)
-    pointsLabel.Font                   = Enum.Font.GothamBold
-    pointsLabel.TextXAlignment         = Enum.TextXAlignment.Center
-    pointsLabel.TextScaled             = true
-
-    local earnedLabel = Instance.new("TextLabel", centerFrame)
-    earnedLabel.Size                   = UDim2.new(1, 0, 0, 40)
-    earnedLabel.Position               = UDim2.new(0, 0, 0, 103)
-    earnedLabel.BackgroundTransparency = 1
-    earnedLabel.Text                   = "+0 earned"
-    earnedLabel.TextColor3             = Color3.fromRGB(80, 220, 120)
-    earnedLabel.Font                   = Enum.Font.GothamBold
-    earnedLabel.TextXAlignment         = Enum.TextXAlignment.Center
-    earnedLabel.TextScaled             = true
-
-    local ptsHrLabel = Instance.new("TextLabel", centerFrame)
-    ptsHrLabel.Size                   = UDim2.new(1, 0, 0, 30)
-    ptsHrLabel.Position               = UDim2.new(0, 0, 0, 143)
-    ptsHrLabel.BackgroundTransparency = 1
-    ptsHrLabel.Text                   = "0 pts/hr"
-    ptsHrLabel.TextColor3             = Color3.fromRGB(120, 200, 140)
-    ptsHrLabel.Font                   = Enum.Font.GothamBold
-    ptsHrLabel.TextXAlignment         = Enum.TextXAlignment.Center
-    ptsHrLabel.TextScaled             = true
-
-    local runtimeLabel = Instance.new("TextLabel", raceGui)
-    runtimeLabel.Size                   = UDim2.new(0, 100, 0, 20)
-    runtimeLabel.Position               = UDim2.new(0, 5, 0, 5)
-    runtimeLabel.BackgroundTransparency = 1
-    runtimeLabel.Text                   = "00:00:00"
-    runtimeLabel.TextColor3             = Color3.fromRGB(180, 180, 220)
-    runtimeLabel.Font                   = Enum.Font.GothamBold
-    runtimeLabel.TextXAlignment         = Enum.TextXAlignment.Left
-
-    local topInfoLabel = Instance.new("TextLabel", centerFrame)
-    topInfoLabel.Size                   = UDim2.new(0.5, 0, 0, 16)
-    topInfoLabel.Position               = UDim2.new(0, 5, 0, 178)
-    topInfoLabel.BackgroundTransparency = 1
-    topInfoLabel.Text                   = "x0"
-    topInfoLabel.TextColor3             = Color3.fromRGB(140, 140, 180)
-    topInfoLabel.Font                   = Enum.Font.Gotham
-    topInfoLabel.TextXAlignment         = Enum.TextXAlignment.Left
-
-    local statusLbl = Instance.new("TextLabel", centerFrame)
-    statusLbl.Size                   = UDim2.new(0.5, -5, 0, 16)
-    statusLbl.Position               = UDim2.new(0.5, 0, 0, 178)
-    statusLbl.BackgroundTransparency = 1
-    statusLbl.Text                   = "Idle"
-    statusLbl.TextColor3             = Color3.fromRGB(100, 100, 140)
-    statusLbl.Font                   = Enum.Font.Gotham
-    statusLbl.TextXAlignment         = Enum.TextXAlignment.Right
-
-    local botBar = Instance.new("Frame", raceGui)
-    botBar.Size                   = UDim2.new(1, 0, 0, 75)
-    botBar.Position               = UDim2.new(0, 0, 1, -75)
-    botBar.BackgroundColor3       = Color3.fromRGB(10, 10, 20)
-    botBar.BackgroundTransparency = 0.3
-    botBar.BorderSizePixel        = 0
-    local botGrad = Instance.new("UIGradient", botBar)
-    botGrad.Rotation     = 270
-    botGrad.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0),
-        NumberSequenceKeypoint.new(0.8, 0),
-        NumberSequenceKeypoint.new(1, 1),
-    })
-
-    task.delay(3, function()
-        POINTS_AT_START = getPointsNum()
-        SESSION_START   = os.clock()
-    end)
-
-    local function refreshRaceGUI()
-        pointsLabel.Text = getPointsText()
-        local elapsed = os.clock() - SESSION_START
-        local earned  = math.max(0, getPointsNum() - POINTS_AT_START)
-        local hours   = elapsed / 3600
-        local ptsHr   = hours > 0.02 and math.floor(earned / hours) or 0
-        ptsHrLabel.Text  = string.format("%d pts/hr", ptsHr)
-        earnedLabel.Text = string.format("+%d earned", earned)
-        local h = math.floor(elapsed / 3600)
-        local m = math.floor((elapsed % 3600) / 60)
-        local s = math.floor(elapsed % 60)
-        runtimeLabel.Text  = string.format("%02d:%02d:%02d", h, m, s)
-        topInfoLabel.Text  = string.format("x%d races", RACE_COUNT)
-        if RUNNING then
-            statusLbl.Text       = STATUS_TEXT
-            statusLbl.TextColor3 = Color3.fromRGB(90, 200, 120)
-        else
-            statusLbl.Text       = "Stopped"
-            statusLbl.TextColor3 = Color3.fromRGB(100, 100, 140)
-        end
-    end
-    refreshRaceGUI()
-
-    getgenv().racewin = function()
-        MODE_RACE       = "WIN"
-        RUNNING         = true
-        SESSION_START   = os.clock()
-        POINTS_AT_START = getPointsNum()
-        STATUS_TEXT     = "Starting WIN..."
-        refreshRaceGUI()
-    end
-    getgenv().racelose = function()
-        MODE_RACE       = "LOSE"
-        RUNNING         = true
-        SESSION_START   = os.clock()
-        POINTS_AT_START = getPointsNum()
-        STATUS_TEXT     = "Starting LOSE..."
-        refreshRaceGUI()
-    end
-
-    safeSpawn(function() while true do task.wait(1); refreshRaceGUI() end end)
-
-    local function sendDiscordWebhook()
-        local elapsed = os.clock() - SESSION_START
-        local h = math.floor(elapsed / 3600)
-        local m = math.floor((elapsed % 3600) / 60)
-        local s = math.floor(elapsed % 60)
-        local earned  = math.max(0, getPointsNum() - POINTS_AT_START)
-        local hours   = elapsed / 3600
-        local ptsHr   = hours > 0.02 and math.floor(earned / hours) or 0
-        local data    = {
-            embeds = {{
-                title  = "🏁 " .. player.Name,
-                color  = 16769280,
-                fields = {
-                    { name = "Total Points",   value = getPointsText(),         inline = true },
-                    { name = "Earned Session", value = "+" .. tostring(earned), inline = true },
-                    { name = "PTS/Hour",       value = tostring(ptsHr),         inline = true },
-                    { name = "Races",          value = tostring(RACE_COUNT),    inline = true },
-                    { name = "Mode",           value = MODE_RACE,               inline = true },
-                    { name = "Runtime",        value = string.format("%02d:%02d:%02d", h, m, s), inline = true },
-                },
-                footer = { text = "Auto Race v8.3 | " .. os.date("%Y-%m-%d %H:%M:%S") },
-            }}
-        }
-        local url = WEBHOOK_URLS[math.random(1, #WEBHOOK_URLS)]
-        pcall(function()
-            local r = (syn and syn.request) or (http and http.request) or request
-            if r then
-                r({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode(data) })
-            end
-        end)
-    end
-
-    safeSpawn(function()
-        while not RUNNING do task.wait(5) end
-        task.wait(10); sendDiscordWebhook()
-        while true do task.wait(1800); if RUNNING then sendDiscordWebhook() end end
-    end)
-
-    safeSpawn(function()
-        task.wait(25)
-        sendInit(tostring(getPointsNum()))
-        apiUpdate(player.Name, getPointsNum())
-    end)
-    safeSpawn(function()
-        while not RUNNING do task.wait(5) end
-        task.wait(10); sendUpdate(tostring(getPointsNum()))
-        while true do task.wait(60); if RUNNING then sendUpdate(tostring(getPointsNum())) end end
-    end)
-    safeSpawn(function()
-        while not RUNNING do task.wait(5) end
-        task.wait(15)
-        while true do
-            if RUNNING then safeApiUpdate(player.Name, getPointsNum()) end
-            task.wait(60)
-        end
-    end)
-
-    safeSpawn(function()
-        while true do
-            task.wait(1)
-            if not RUNNING then continue end
-            if not MAP_DELETED then
-                STATUS_TEXT = "Deleting map..."; deleteMap(); task.wait(1)
-                STATUS_TEXT = "Building platforms..."; buildPlatforms(); task.wait(1)
-            end
-            local arrived = approachNPC()
-            if not arrived or not RUNNING then continue end
-            local prompted = fireNPCPrompt()
-            if not prompted then task.wait(2); continue end
-            local menu = waitMenuOpen()
-            if not menu then task.wait(2); continue end
-            pcall(function() remotes.LeaveLobby:FireServer() end)
-            task.wait(1); fireNPCPrompt(); task.wait(1)
-            local menu2 = waitMenuOpen() or menu
-            pcall(function() remotes.GetLobbies:InvokeServer() end)
-            task.wait(1)
-            local joined = false
-            if MODE_RACE == "WIN" then
-                createLobby(); STATUS_TEXT = "Created lobby (HOST)"
-            else
-                for attempt = 1, 10 do
-                    joined = joinLobby(menu2)
-                    if joined then STATUS_TEXT = "Joined lobby"; break end
-                    STATUS_TEXT = string.format("No lobby %d/10...", attempt)
-                    pcall(function() remotes.GetLobbies:InvokeServer() end)
-                    task.wait(3)
-                end
-                if not joined then STATUS_TEXT = "No lobby..."; task.wait(3); continue end
-            end
-            task.wait(2); selectRandomCar(); task.wait(0.5); readyUp()
-            STATUS_TEXT = "Ready!"
-            if MODE_RACE == "WIN" then
-                safeSpawn(function()
-                    while RUNNING and not isRaceHUDVisible() do task.wait(5); remotes.StartRace:FireServer() end
-                end)
-            end
-            STATUS_TEXT = "Waiting race..."
-            while RUNNING and not isRaceHUDVisible() do task.wait(0.5) end
-            if not RUNNING then continue end
-            STATUS_TEXT = "Countdown..."; task.wait(3)
-            runRaceLoop()
-            pcall(function() player.PlayerGui.Race.Container.Scoreboard:Destroy() end)
-            RACE_COUNT += 1
-            STATUS_TEXT  = string.format("Done! x%d → NPC", RACE_COUNT)
-            local npcRoot2 = NPC_PATH:FindFirstChild("HumanoidRootPart")
-            if npcRoot2 and RUNNING then
-                local npcPos  = npcRoot2.Position
-                local landPos = npcPos + npcRoot2.CFrame.LookVector * 5
-                root.CFrame              = CFrame.new(landPos.X, npcPos.Y + 35, landPos.Z)
-                root.Anchored            = true
-                root.AssemblyLinearVelocity  = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-                task.wait(3); root.Anchored = false
-                for i = 1, 30 do
-                    if not RUNNING then break end
-                    root.CFrame = root.CFrame - Vector3.new(0, 1, 0); task.wait(0.03)
-                end
-                task.wait(0.5)
-            end
-            local wt = 0
-            while RUNNING and isRaceHUDVisible() and wt < 3 do
-                task.wait(0.5); wt += 0.5
-                pcall(function() player.PlayerGui.Race.Container.RaceHUD.Visible = false end)
-            end
-        end
-    end)
-end
-
--- ═══════════════════════════════════
 --  MODE: JOKI UANG
 -- ═══════════════════════════════════
 local function startJokiUang()
@@ -1478,12 +849,54 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs
 end
 
 -- ═══════════════════════════════════
+--  MODE: EVENT
+-- ═══════════════════════════════════
+local function startEvent()
+    log("[EVENT] Starting for " .. player.Name)
+
+    safeSpawn(function()
+        local pg = player:WaitForChild("PlayerGui", 15)
+        if not pg then log("[EVENT] PlayerGui not found"); return end
+        local eventShop = pg:WaitForChild("EVENT SHOP", 15)
+        if not eventShop then log("[EVENT] EVENT SHOP GUI not found"); return end
+        local valLabel = eventShop
+            :WaitForChild("Shop", 10)
+            :WaitForChild("TitleBar", 10)
+            :WaitForChild("PointsPill", 10)
+            :WaitForChild("Value", 10)
+        if not valLabel then log("[EVENT] PointsPill Value not found"); return end
+
+        local function parsePoints(txt)
+            return tonumber((txt or ""):gsub("[^%d]", "")) or 0
+        end
+
+        task.wait(3)
+        local initPts = parsePoints(valLabel.Text)
+        log("[EVENT] Poin awal: " .. tostring(initPts))
+        sendInit(tostring(initPts))
+        apiUpdate(player.Name, initPts)
+
+        while true do
+            task.wait(60)
+            local cur = parsePoints(valLabel.Text)
+            sendUpdate(tostring(cur))
+            safeApiUpdate(player.Name, cur)
+        end
+    end)
+
+    getgenv().key    = "411572f1-0a19-42fc-ab0c-f386ad74bad6"
+    getgenv().script = "Adha"
+    pcall(function()
+        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+    end)
+end
+
+-- ═══════════════════════════════════
 --  MODE: DDS
 -- ═══════════════════════════════════
 local function startDDS()
     log("[DDS] Starting for " .. player.Name)
 
-    -- Track RPValue → kirim ke Sheets + API
     safeSpawn(function()
         local pd    = player:WaitForChild("PlayerData", 15)
         if not pd then log("[DDS] PlayerData not found"); return end
@@ -1504,7 +917,6 @@ local function startDDS()
         end
     end)
 
-    -- Jalankan DDS gameplay loader
     getgenv().key    = "234246b8-cb63-4ba6-b29c-17eaf5f38247"
     getgenv().script = "DDS"
     pcall(function()
@@ -1548,8 +960,8 @@ end
 local function resolveMode(data)
     if not data then return nil end
 
-    local jenis     = (data.jenis     or ""):lower()
-    local jumpMode  = (data.jump_mode or ""):lower()
+    local jenis    = (data.jenis     or ""):lower()
+    local jumpMode = (data.jump_mode or ""):lower()
 
     if jenis == "uang" then
         return "joki_uang"
@@ -1559,9 +971,7 @@ local function resolveMode(data)
         else                       return "minigame_nojump" end
 
     elseif jenis == "event" then
-        -- event uses same execution as minigame, only jenis differs
-        if jumpMode == "jump" then return "event_jump"
-        else                       return "event_nojump" end
+        return "event"
     end
 
     return nil
@@ -1720,7 +1130,7 @@ local function onIngame()
             task.wait(0.5)
             waited += 0.5
         end
-        task.wait(3)  -- extra settle time per CLAUDE.md
+        task.wait(3)
 
         log("[INGAME] Character ready, fetching job...")
 
@@ -1781,17 +1191,8 @@ local function onIngame()
             task.wait(1)
             getgenv().minigame_nojump()
 
-        elseif mode == "event_jump" then
-            -- jump → racelose (Seasonal map)
-            startRace()
-            task.wait(1)
-            getgenv().racelose()
-
-        elseif mode == "event_nojump" then
-            -- nojump → racewin (Seasonal map)
-            startRace()
-            task.wait(1)
-            getgenv().racewin()
+        elseif mode == "event" then
+            startEvent()
         end
     end)
 end
@@ -1840,14 +1241,13 @@ local mainLoopThread = nil
 
 local function eject()
     getgenv()._samlongBrainRunning = false
-    -- Cancel semua thread yang pernah di-spawn (minigame loop, uang loop, race loop, reconnect, dll.)
+    -- Cancel semua thread yang pernah di-spawn (minigame loop, uang loop, reconnect, dll.)
     for _, t in ipairs(_threads) do pcall(task.cancel, t) end
     if mainLoopThread then pcall(task.cancel, mainLoopThread) end
     -- Destroy semua GUI
     pcall(function() logGui:Destroy() end)
     pcall(function() if CoreGui:FindFirstChild("SamlongGUI") then CoreGui.SamlongGUI:Destroy() end end)
     pcall(function() if CoreGui:FindFirstChild("SamlongJokiUI") then CoreGui.SamlongJokiUI:Destroy() end end)
-    pcall(function() if player.PlayerGui:FindFirstChild("AutoRaceGUI") then player.PlayerGui.AutoRaceGUI:Destroy() end end)
     print("[BRAIN] EJECTED — semua thread dihentikan, aman eksekusi script lain")
 end
 
