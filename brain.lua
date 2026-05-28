@@ -856,8 +856,13 @@ local function startEvent()
     serverLock()
 
     -- Hapus phone / hub
-    pcall(function()
-        CoreGui.RobloxGui.Backpack.Hotbar:Destroy()
+    safeSpawn(function()
+        pcall(function()
+            local robloxGui = CoreGui:WaitForChild("RobloxGui", 10)
+            local backpack  = robloxGui and robloxGui:WaitForChild("Backpack", 10)
+            local hotbar    = backpack  and backpack:WaitForChild("Hotbar", 10)
+            if hotbar then hotbar:Destroy() end
+        end)
     end)
 
     -- ── Overlay GUI (selalu di atas, termasuk blackscreen) ──
