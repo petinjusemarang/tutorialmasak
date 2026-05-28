@@ -867,7 +867,10 @@ local function startEvent()
         if not valLabel then log("[EVENT] PointsPill Value not found"); return end
 
         local function parsePoints(txt)
-            return tonumber((txt or ""):gsub("[^%d]", "")) or 0
+            txt = tostring(txt or "")
+            local nums = {}
+            for n in txt:gmatch("%d+") do nums[#nums+1] = n end
+            return tonumber(table.concat(nums)) or 0
         end
 
         -- Cache nilai terbaru; diupdate setiap kali shop dibuka (teks berubah)
