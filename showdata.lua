@@ -31,6 +31,34 @@ player.Idled:Connect(function()
 end)
 
 -- ═══════════════════════════════════
+--  HTTP HELPER
+-- ═══════════════════════════════════
+local function req(opt)
+    local r = (syn and syn.request) or (http and http.request) or request
+    if not r then print("[SHOWDATA] HTTP not supported"); return end
+    local ok, res = pcall(function() return r(opt) end)
+    if ok and res then return res end
+    print("[SHOWDATA] HTTP error: " .. opt.Url)
+end
+
+-- ═══════════════════════════════════
+--  GET SLOT (cek slot aktif di tracker)
+-- ═══════════════════════════════════
+local function getPS(username)
+    local res = req({
+        Url     = API_URL .. "/api/private-server?username=" .. HttpService:UrlEncode(username),
+        Method  = "GET",
+        Headers = { ["x-api-key"] = API_KEY },
+    })
+    if res and res.StatusCode == 200 then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok and data then return data end
+    end
+    print("[SHOWDATA] getPS fail — status: " .. tostring(res and res.StatusCode))
+    return nil
+end
+
+-- ═══════════════════════════════════
 --  SERVER LOCK
 -- ═══════════════════════════════════
 pcall(function()
@@ -61,22 +89,26 @@ local function sendInit(points)
 end
 
 local function apiUpdate(rawPoints)
-    pcall(function()
-        local r = (syn and syn.request) or (http and http.request) or request
-        if r then
-            r({
-                Url     = API_URL .. "/api/update",
-                Method  = "POST",
-                Headers = { ["Content-Type"] = "application/json", ["x-api-key"] = API_KEY },
-                Body    = HttpService:JSONEncode({
-                    username         = player.Name,
-                    current_progress = rawPoints,
-                    current_amount   = rawPoints,
-                    user_id          = player.UserId,
-                }),
-            })
+    local res = req({
+        Url     = API_URL .. "/api/update",
+        Method  = "POST",
+        Headers = { ["Content-Type"] = "application/json", ["x-api-key"] = API_KEY },
+        Body    = HttpService:JSONEncode({
+            username         = player.Name,
+            current_progress = rawPoints,
+            current_amount   = rawPoints,
+            user_id          = player.UserId,
+        }),
+    })
+    if res then
+        if res.StatusCode == 200 then
+            print("[SHOWDATA] apiUpdate OK — " .. tostring(rawPoints))
+        elseif res.StatusCode == 404 then
+            print("[SHOWDATA] apiUpdate 404 — tidak ada order aktif untuk " .. player.Name)
+        else
+            print("[SHOWDATA] apiUpdate " .. res.StatusCode .. " — " .. tostring(res.Body))
         end
-    end)
+    end
 end
 
 local _lastSend  = -math.huge
@@ -113,6 +145,21 @@ local function formatUang(raw)
     end
 end
 
+-- ═══════════════════════════════════
+--  CEK SLOT AKTIF
+-- ═══════════════════════════════════
+print("[SHOWDATA] Cek slot untuk " .. player.Name .. "...")
+local slotData = getPS(player.Name)
+
+if not slotData then
+    print("[SHOWDATA] ⚠ Slot tidak ditemukan di tracker! Data tetap dikirim tapi mungkin tidak masuk order.")
+    print("[SHOWDATA] Pastikan username '" .. player.Name .. "' sudah diassign di dashboard.")
+else
+    print("[SHOWDATA] Slot OK — jenis: " .. tostring(slotData.jenis) .. " | server: " .. tostring(slotData.server_code))
+    if slotData.jenis and slotData.jenis:lower() ~= "uang" then
+        print("[SHOWDATA] ⚠ Slot jenis '" .. slotData.jenis .. "' bukan uang — pastikan sudah benar.")
+    end
+end
 
 -- ═══════════════════════════════════
 --  GUI
@@ -174,6 +221,21 @@ earnText.TextScaled             = true
 earnText.TextColor3             = Color3.fromRGB(200, 200, 200)
 earnText.Text                   = "Earn terakhir: -"
 
+-- Status slot di GUI (kecil, di bawah)
+local slotStatus = Instance.new("TextLabel", mainF)
+slotStatus.Size                   = UDim2.new(1, -40, 0, 28)
+slotStatus.Position               = UDim2.new(0, 20, 0, 198)
+slotStatus.BackgroundTransparency = 1
+slotStatus.Font                   = Enum.Font.Gotham
+slotStatus.TextScaled             = true
+slotStatus.TextXAlignment         = Enum.TextXAlignment.Left
+slotStatus.TextColor3             = slotData
+    and Color3.fromRGB(100, 255, 150)
+    or  Color3.fromRGB(255, 100, 100)
+slotStatus.Text = slotData
+    and ("✓ Slot: " .. tostring(slotData.jenis):upper() .. " | " .. tostring(slotData.server_code))
+    or  "⚠ Slot tidak ditemukan di tracker"
+
 local ng = Instance.new("TextLabel", jokiGui)
 ng.Size             = UDim2.new(0, 600, 0, 100)
 ng.Position         = UDim2.new(0.5, 0, 0.85, 0)
@@ -223,6 +285,7 @@ task.spawn(function()
     task.wait(3)
     local initFmt = formatUang(moneyLabel.Text)
     local initRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+    print("[SHOWDATA] Init — " .. initFmt .. " (" .. initRaw .. ")")
     sendInit(initFmt)
     apiUpdate(initRaw)
     while true do
