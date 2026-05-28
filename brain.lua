@@ -854,6 +854,56 @@ end
 local function startEvent()
     log("[EVENT] Starting for " .. player.Name)
 
+    -- ── Overlay GUI (selalu di atas, termasuk blackscreen) ──
+    pcall(function()
+        if CoreGui:FindFirstChild("SamlongEventUI") then
+            CoreGui.SamlongEventUI:Destroy()
+        end
+    end)
+
+    local evGui = Instance.new("ScreenGui")
+    evGui.Name         = "SamlongEventUI"
+    evGui.ResetOnSpawn = false
+    evGui.DisplayOrder = 9999
+    evGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    evGui.Parent       = CoreGui
+
+    local evFrame = Instance.new("Frame", evGui)
+    evFrame.Size             = UDim2.new(0, 280, 0, 100)
+    evFrame.Position         = UDim2.new(1, -295, 0, 15)
+    evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
+    evFrame.BackgroundTransparency = 0.15
+    evFrame.BorderSizePixel  = 0
+    Instance.new("UICorner", evFrame).CornerRadius = UDim.new(0, 12)
+
+    local stroke = Instance.new("UIStroke", evFrame)
+    stroke.Color     = Color3.fromRGB(80, 160, 255)
+    stroke.Thickness = 1.5
+
+    local evName = Instance.new("TextLabel", evFrame)
+    evName.Size                   = UDim2.new(1, -16, 0, 42)
+    evName.Position               = UDim2.new(0, 8, 0, 6)
+    evName.BackgroundTransparency = 1
+    evName.Font                   = Enum.Font.GothamBlack
+    evName.TextScaled             = true
+    evName.TextColor3             = Color3.fromRGB(255, 220, 60)
+    evName.TextStrokeTransparency = 0.4
+    evName.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evName.TextXAlignment         = Enum.TextXAlignment.Center
+    evName.Text                   = player.Name
+
+    local evPoints = Instance.new("TextLabel", evFrame)
+    evPoints.Size                   = UDim2.new(1, -16, 0, 46)
+    evPoints.Position               = UDim2.new(0, 8, 0, 48)
+    evPoints.BackgroundTransparency = 1
+    evPoints.Font                   = Enum.Font.GothamBlack
+    evPoints.TextScaled             = true
+    evPoints.TextColor3             = Color3.new(1, 1, 1)
+    evPoints.TextStrokeTransparency = 0.4
+    evPoints.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evPoints.TextXAlignment         = Enum.TextXAlignment.Center
+    evPoints.Text                   = "... PTS"
+
     safeSpawn(function()
         local pg = player:WaitForChild("PlayerGui", 15)
         if not pg then log("[EVENT] PlayerGui not found"); return end
@@ -881,6 +931,7 @@ local function startEvent()
             if v > 0 and v ~= latestPts then
                 latestPts   = v
                 lastValChange = os.time()
+                evPoints.Text = tostring(v) .. " PTS"
                 sendUpdate(tostring(v))
                 safeApiUpdate(player.Name, v)
                 log("[EVENT] Poin update: " .. tostring(v))
@@ -898,6 +949,7 @@ local function startEvent()
         end
         if latestPts == 0 then latestPts = initPts end
         lastValChange = os.time()
+        evPoints.Text = tostring(latestPts) .. " PTS"
         log("[EVENT] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
@@ -924,8 +976,10 @@ local function startEvent()
                 lastValChange = os.time()
                 log("[EVENT] Poin poll: " .. tostring(cur))
             end
-            sendUpdate(tostring(latestPts > 0 and latestPts or cur))
-            safeApiUpdate(player.Name, latestPts > 0 and latestPts or cur)
+            local sendVal = latestPts > 0 and latestPts or cur
+            evPoints.Text = tostring(sendVal) .. " PTS"
+            sendUpdate(tostring(sendVal))
+            safeApiUpdate(player.Name, sendVal)
         end
     end)
 
