@@ -885,9 +885,14 @@ local function startEvent()
 
         valLabel:GetPropertyChangedSignal("Text"):Connect(onValueChanged)
 
-        task.wait(3)
-        local initPts = parsePoints(valLabel.Text)
-        if initPts > 0 then latestPts = initPts end
+        -- Tunggu hingga nilai stabil (game perlu beberapa detik load dari server)
+        local initPts = 0
+        for _ = 1, 20 do
+            task.wait(1)
+            initPts = parsePoints(valLabel.Text)
+            if initPts > 0 then break end
+        end
+        if latestPts == 0 then latestPts = initPts end
         log("[EVENT] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
