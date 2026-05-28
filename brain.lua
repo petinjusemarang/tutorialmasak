@@ -855,6 +855,11 @@ local function startEvent()
     log("[EVENT] Starting for " .. player.Name)
     serverLock()
 
+    -- Hapus phone / hub
+    pcall(function()
+        player.PlayerGui.Main.Container.Hub:Destroy()
+    end)
+
     -- ── Overlay GUI (selalu di atas, termasuk blackscreen) ──
     pcall(function()
         if CoreGui:FindFirstChild("SamlongEventUI") then
