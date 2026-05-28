@@ -857,7 +857,7 @@ local function startEvent()
 
     -- Hapus phone / hub
     pcall(function()
-        player.PlayerGui.Main.Container.Hub:Destroy()
+        CoreGui.RobloxGui.Backpack.Hotbar:Destroy()
     end)
 
     -- ── Overlay GUI (selalu di atas, termasuk blackscreen) ──
