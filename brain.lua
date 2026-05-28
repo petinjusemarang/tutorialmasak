@@ -853,6 +853,7 @@ end
 -- ═══════════════════════════════════
 local function startEvent()
     log("[EVENT] Starting for " .. player.Name)
+    serverLock()
 
     -- ── Overlay GUI (selalu di atas, termasuk blackscreen) ──
     pcall(function()
