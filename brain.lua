@@ -870,17 +870,38 @@ local function startEvent()
             return tonumber((txt or ""):gsub("[^%d]", "")) or 0
         end
 
+        -- Cache nilai terbaru; diupdate setiap kali shop dibuka (teks berubah)
+        local latestPts = 0
+
+        local function onValueChanged()
+            local v = parsePoints(valLabel.Text)
+            if v > 0 and v ~= latestPts then
+                latestPts = v
+                sendUpdate(tostring(v))
+                safeApiUpdate(player.Name, v)
+                log("[EVENT] Poin update: " .. tostring(v))
+            end
+        end
+
+        valLabel:GetPropertyChangedSignal("Text"):Connect(onValueChanged)
+
         task.wait(3)
         local initPts = parsePoints(valLabel.Text)
+        if initPts > 0 then latestPts = initPts end
         log("[EVENT] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
 
         while true do
             task.wait(60)
+            -- fallback poll — tangkap jika listener kelewatan
             local cur = parsePoints(valLabel.Text)
-            sendUpdate(tostring(cur))
-            safeApiUpdate(player.Name, cur)
+            if cur > 0 and cur ~= latestPts then
+                latestPts = cur
+                log("[EVENT] Poin poll: " .. tostring(cur))
+            end
+            sendUpdate(tostring(latestPts > 0 and latestPts or cur))
+            safeApiUpdate(player.Name, latestPts > 0 and latestPts or cur)
         end
     end)
 
