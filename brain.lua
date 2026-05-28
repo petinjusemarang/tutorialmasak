@@ -873,13 +873,14 @@ local function startEvent()
             return tonumber(table.concat(nums)) or 0
         end
 
-        -- Cache nilai terbaru; diupdate setiap kali shop dibuka (teks berubah)
-        local latestPts = 0
+        local latestPts   = 0
+        local lastValChange = os.time()
 
         local function onValueChanged()
             local v = parsePoints(valLabel.Text)
             if v > 0 and v ~= latestPts then
-                latestPts = v
+                latestPts   = v
+                lastValChange = os.time()
                 sendUpdate(tostring(v))
                 safeApiUpdate(player.Name, v)
                 log("[EVENT] Poin update: " .. tostring(v))
@@ -896,16 +897,31 @@ local function startEvent()
             if initPts > 0 then break end
         end
         if latestPts == 0 then latestPts = initPts end
+        lastValChange = os.time()
         log("[EVENT] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
 
+        -- Stuck detector: poin ga naik 10 menit → relog
+        safeSpawn(function()
+            local STUCK_THRESHOLD = 600
+            while true do
+                task.wait(60)
+                local elapsed = os.difftime(os.time(), lastValChange)
+                if elapsed >= STUCK_THRESHOLD then
+                    log("[EVENT] Stuck " .. math.floor(elapsed/60) .. "m — auto relog")
+                    lastValChange = os.time()  -- reset biar ga spam
+                    ReturnLobby()
+                end
+            end
+        end)
+
         while true do
             task.wait(60)
-            -- fallback poll — tangkap jika listener kelewatan
             local cur = parsePoints(valLabel.Text)
             if cur > 0 and cur ~= latestPts then
-                latestPts = cur
+                latestPts   = cur
+                lastValChange = os.time()
                 log("[EVENT] Poin poll: " .. tostring(cur))
             end
             sendUpdate(tostring(latestPts > 0 and latestPts or cur))
