@@ -313,32 +313,6 @@ local function serverLock()
     end)
 end
 
-local function formatUang(raw)
-    local num = tonumber((raw:gsub("[^%d]", ""))) or 0
-    if num >= 1000000000000 then
-        local val = num / 1000000000000
-        local dec = math.floor(val * 10) / 10
-        if dec == math.floor(dec) then return string.format("%dT", math.floor(dec))
-        else return string.format("%.1fT", dec):gsub("%.", ",") end
-    elseif num >= 1000000000 then
-        local val = num / 1000000000
-        local dec = math.floor(val * 10) / 10
-        if dec == math.floor(dec) then return string.format("%dM", math.floor(dec))
-        else return string.format("%.1fM", dec):gsub("%.", ",") end
-    elseif num >= 1000000 then
-        local val = num / 1000000
-        local dec = math.floor(val * 10) / 10
-        if dec == math.floor(dec) then return string.format("%djt", math.floor(dec))
-        else return string.format("%.1fjt", dec):gsub("%.", ",") end
-    elseif num >= 1000 then
-        local val = num / 1000
-        local dec = math.floor(val * 10) / 10
-        if dec == math.floor(dec) then return string.format("%dK", math.floor(dec))
-        else return string.format("%.1fK", dec):gsub("%.", ",") end
-    else
-        return tostring(num)
-    end
-end
 
 -- ═══════════════════════════════════
 --  ANTI-AFK (global, sekali)
@@ -822,15 +796,13 @@ local function startJokiUang()
 
         safeSpawn(function()
             task.wait(3)
-            local initMoney = formatUang(moneyLabel.Text)
-            local initRaw   = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
-            sendInit(initMoney)
+            local initRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+            sendInit(tostring(initRaw))
             apiUpdate(player.Name, initRaw)   -- initial send, bypasses throttle intentionally
             while true do
                 task.wait(60)
-                local curFmt = formatUang(moneyLabel.Text)
                 local curRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
-                sendUpdate(curFmt)
+                sendUpdate(tostring(curRaw))
                 safeApiUpdate(player.Name, curRaw)
             end
         end)
