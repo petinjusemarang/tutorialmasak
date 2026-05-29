@@ -122,28 +122,6 @@ local function safeApiUpdate(value)
     apiUpdate(value)
 end
 
-local function formatUang(raw)
-    local num = tonumber((raw:gsub("[^%d]", ""))) or 0
-    if num >= 1000000000000 then
-        local v = num / 1000000000000
-        local d = math.floor(v * 10) / 10
-        return d == math.floor(d) and string.format("%dT", math.floor(d)) or string.format("%.1fT", d):gsub("%.", ",")
-    elseif num >= 1000000000 then
-        local v = num / 1000000000
-        local d = math.floor(v * 10) / 10
-        return d == math.floor(d) and string.format("%dM", math.floor(d)) or string.format("%.1fM", d):gsub("%.", ",")
-    elseif num >= 1000000 then
-        local v = num / 1000000
-        local d = math.floor(v * 10) / 10
-        return d == math.floor(d) and string.format("%djt", math.floor(d)) or string.format("%.1fjt", d):gsub("%.", ",")
-    elseif num >= 1000 then
-        local v = num / 1000
-        local d = math.floor(v * 10) / 10
-        return d == math.floor(d) and string.format("%dK", math.floor(d)) or string.format("%.1fK", d):gsub("%.", ",")
-    else
-        return tostring(num)
-    end
-end
 
 -- ═══════════════════════════════════
 --  CEK SLOT AKTIF
@@ -346,17 +324,15 @@ local function showMainGui()
 
             task.spawn(function()
                 task.wait(3)
-                local initFmt = formatUang(moneyLabel.Text)
                 local initRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
                 uangText.Text = moneyLabel.Text
-                print("[SHOWDATA] Init — " .. initFmt .. " (" .. initRaw .. ")")
-                sendInit(initFmt)
+                print("[SHOWDATA] Init — " .. tostring(initRaw))
+                sendInit(tostring(initRaw))
                 apiUpdate(initRaw)
                 while true do
                     task.wait(60)
-                    local curFmt = formatUang(moneyLabel.Text)
                     local curRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
-                    sendUpdate(curFmt)
+                    sendUpdate(tostring(curRaw))
                     safeApiUpdate(curRaw)
                 end
             end)
