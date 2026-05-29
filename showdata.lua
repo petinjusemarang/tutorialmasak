@@ -42,7 +42,7 @@ local function req(opt)
 end
 
 -- ═══════════════════════════════════
---  GET SLOT (cek slot aktif di tracker)
+--  GET SLOT
 -- ═══════════════════════════════════
 local function getPS(username)
     local res = req({
@@ -152,56 +152,82 @@ print("[SHOWDATA] Cek slot untuk " .. player.Name .. "...")
 local slotData = getPS(player.Name)
 
 if not slotData then
-    print("[SHOWDATA] ⚠ Slot tidak ditemukan di tracker! Data tetap dikirim tapi mungkin tidak masuk order.")
-    print("[SHOWDATA] Pastikan username '" .. player.Name .. "' sudah diassign di dashboard.")
+    print("[SHOWDATA] ⚠ Slot tidak ditemukan di tracker!")
 else
     print("[SHOWDATA] Slot OK — jenis: " .. tostring(slotData.jenis) .. " | server: " .. tostring(slotData.server_code))
-    if slotData.jenis and slotData.jenis:lower() ~= "uang" then
-        print("[SHOWDATA] ⚠ Slot jenis '" .. slotData.jenis .. "' bukan uang — pastikan sudah benar.")
-    end
 end
 
 -- ═══════════════════════════════════
---  GUI
+--  JALANKAN LUVIOHUB DULU
+-- ═══════════════════════════════════
+print("[SHOWDATA] Menjalankan LuvioHub...")
+pcall(function()
+    getgenv().key    = "411572f1-0a19-42fc-ab0c-f386ad74bad6"
+    getgenv().script = "Lite"
+    loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+end)
+
+-- ═══════════════════════════════════
+--  TOMBOL MUNCULKAN GUI
 -- ═══════════════════════════════════
 if CoreGui:FindFirstChild("SamlongJokiUI") then CoreGui.SamlongJokiUI:Destroy() end
 
-local jokiGui = Instance.new("ScreenGui")
-jokiGui.Name           = "SamlongJokiUI"
-jokiGui.ResetOnSpawn   = false
-jokiGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-jokiGui.Parent         = CoreGui
+local rootGui = Instance.new("ScreenGui")
+rootGui.Name         = "SamlongJokiUI"
+rootGui.ResetOnSpawn = false
+rootGui.DisplayOrder = 9998
+rootGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+rootGui.Parent       = CoreGui
 
-local playerGui  = player:WaitForChild("PlayerGui")
-local moneyLabel = playerGui
-    :WaitForChild("Main")
-    :WaitForChild("Container")
-    :WaitForChild("Hub")
-    :WaitForChild("CashFrame")
-    :WaitForChild("Frame")
-    :WaitForChild("TextLabel")
+-- Tombol kecil
+local triggerBtn = Instance.new("TextButton", rootGui)
+triggerBtn.Size             = UDim2.new(0, 180, 0, 38)
+triggerBtn.Position         = UDim2.new(0, 10, 0.42, 0)
+triggerBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+triggerBtn.BorderSizePixel  = 0
+triggerBtn.Font             = Enum.Font.GothamBold
+triggerBtn.TextSize         = 13
+triggerBtn.TextColor3       = Color3.fromRGB(255, 220, 80)
+triggerBtn.Text             = "📊 Samlong GUI"
+triggerBtn.ZIndex           = 10
+Instance.new("UICorner", triggerBtn).CornerRadius = UDim.new(0, 8)
+local triggerStroke = Instance.new("UIStroke", triggerBtn)
+triggerStroke.Color     = Color3.fromRGB(80, 160, 255)
+triggerStroke.Thickness = 1.2
 
-local shadow = Instance.new("Frame", jokiGui)
+-- ═══════════════════════════════════
+--  MAIN GUI (tersembunyi dulu)
+-- ═══════════════════════════════════
+local shadow = Instance.new("Frame", rootGui)
 shadow.Size                   = UDim2.new(1, 0, 1, 0)
 shadow.BackgroundColor3       = Color3.new(0, 0, 0)
 shadow.BackgroundTransparency = 0.4
+shadow.Visible                = false
+shadow.ZIndex                 = 20
 
-local mainF = Instance.new("Frame", jokiGui)
-mainF.Size             = UDim2.new(0, 520, 0, 300)
+local mainF = Instance.new("Frame", rootGui)
+mainF.Size             = UDim2.new(0, 520, 0, 240)
 mainF.Position         = UDim2.new(0.5, 0, 0.5, 0)
 mainF.AnchorPoint      = Vector2.new(0.5, 0.5)
-mainF.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mainF.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 mainF.BorderSizePixel  = 0
+mainF.Visible          = false
+mainF.ZIndex           = 21
 Instance.new("UICorner", mainF).CornerRadius = UDim.new(0, 16)
+local mainStroke = Instance.new("UIStroke", mainF)
+mainStroke.Color     = Color3.fromRGB(80, 160, 255)
+mainStroke.Thickness = 1.5
 
 local usernameText = Instance.new("TextLabel", mainF)
 usernameText.Size                   = UDim2.new(1, -40, 0, 50)
-usernameText.Position               = UDim2.new(0, 20, 0, 15)
+usernameText.Position               = UDim2.new(0, 20, 0, 12)
 usernameText.BackgroundTransparency = 1
 usernameText.Font                   = Enum.Font.GothamBlack
 usernameText.TextScaled             = true
 usernameText.TextColor3             = Color3.fromRGB(255, 220, 80)
+usernameText.TextXAlignment         = Enum.TextXAlignment.Center
 usernameText.Text                   = player.Name
+usernameText.ZIndex                 = 22
 
 local uangText = Instance.new("TextLabel", mainF)
 uangText.Size                   = UDim2.new(1, -40, 0, 80)
@@ -210,33 +236,48 @@ uangText.BackgroundTransparency = 1
 uangText.Font                   = Enum.Font.GothamBlack
 uangText.TextScaled             = true
 uangText.TextColor3             = Color3.new(1, 1, 1)
-uangText.Text                   = moneyLabel.Text
+uangText.TextXAlignment         = Enum.TextXAlignment.Center
+uangText.Text                   = "..."
+uangText.ZIndex                 = 22
 
 local earnText = Instance.new("TextLabel", mainF)
-earnText.Size                   = UDim2.new(1, -40, 0, 40)
-earnText.Position               = UDim2.new(0, 20, 0, 150)
+earnText.Size                   = UDim2.new(1, -40, 0, 30)
+earnText.Position               = UDim2.new(0, 20, 0, 148)
 earnText.BackgroundTransparency = 1
 earnText.Font                   = Enum.Font.GothamSemibold
 earnText.TextScaled             = true
 earnText.TextColor3             = Color3.fromRGB(200, 200, 200)
+earnText.TextXAlignment         = Enum.TextXAlignment.Center
 earnText.Text                   = "Earn terakhir: -"
+earnText.ZIndex                 = 22
 
--- Status slot di GUI (kecil, di bawah)
 local slotStatus = Instance.new("TextLabel", mainF)
-slotStatus.Size                   = UDim2.new(1, -40, 0, 28)
-slotStatus.Position               = UDim2.new(0, 20, 0, 198)
+slotStatus.Size                   = UDim2.new(1, -40, 0, 24)
+slotStatus.Position               = UDim2.new(0, 20, 0, 182)
 slotStatus.BackgroundTransparency = 1
 slotStatus.Font                   = Enum.Font.Gotham
 slotStatus.TextScaled             = true
-slotStatus.TextXAlignment         = Enum.TextXAlignment.Left
-slotStatus.TextColor3             = slotData
-    and Color3.fromRGB(100, 255, 150)
-    or  Color3.fromRGB(255, 100, 100)
-slotStatus.Text = slotData
-    and ("✓ Slot: " .. tostring(slotData.jenis):upper() .. " | " .. tostring(slotData.server_code))
+slotStatus.TextXAlignment         = Enum.TextXAlignment.Center
+slotStatus.TextColor3             = slotData and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(255, 100, 100)
+slotStatus.Text                   = slotData
+    and ("✓ " .. tostring(slotData.jenis):upper() .. " | " .. tostring(slotData.server_code))
     or  "⚠ Slot tidak ditemukan di tracker"
+slotStatus.ZIndex                 = 22
 
-local ng = Instance.new("TextLabel", jokiGui)
+-- Tombol tutup di GUI
+local closeBtn = Instance.new("TextButton", mainF)
+closeBtn.Size             = UDim2.new(0, 28, 0, 28)
+closeBtn.Position         = UDim2.new(1, -36, 0, 8)
+closeBtn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+closeBtn.BorderSizePixel  = 0
+closeBtn.Font             = Enum.Font.GothamBold
+closeBtn.TextSize         = 14
+closeBtn.TextColor3       = Color3.new(1, 1, 1)
+closeBtn.Text             = "✕"
+closeBtn.ZIndex           = 23
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+
+local ng = Instance.new("TextLabel", rootGui)
 ng.Size             = UDim2.new(0, 600, 0, 100)
 ng.Position         = UDim2.new(0.5, 0, 0.85, 0)
 ng.AnchorPoint      = Vector2.new(0.5, 0.5)
@@ -247,54 +288,93 @@ ng.TextColor3       = Color3.new(1, 1, 1)
 ng.Text             = "SUPIR NGANGGUR BOS!!!"
 ng.Visible          = false
 ng.BorderSizePixel  = 0
+ng.ZIndex           = 25
 Instance.new("UICorner", ng).CornerRadius = UDim.new(0, 12)
 
 -- ═══════════════════════════════════
---  LOGIC
+--  TOGGLE LOGIC
 -- ═══════════════════════════════════
-local lastEarn  = os.time()
-local prevMoney = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+local guiShown = false
+local trackingStarted = false
 
-moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
-    local cur = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
-    if cur ~= prevMoney then
-        prevMoney     = cur
-        lastEarn      = os.time()
-        uangText.Text = moneyLabel.Text
-    end
-end)
+local function showMainGui()
+    guiShown       = true
+    shadow.Visible = true
+    mainF.Visible  = true
+    triggerBtn.Visible = false
 
--- Timer: update "earn terakhir" setiap detik, cek stuck 6 menit
-task.spawn(function()
-    while true do
-        task.wait(1)
-        local elapsed = os.time() - lastEarn
-        earnText.Text = string.format(
-            "Earn terakhir: %02d menit %02d detik",
-            math.floor(elapsed / 60),
-            elapsed % 60
-        )
-        if elapsed >= 360 and not ng.Visible then
-            ng.Visible = true
+    if not trackingStarted then
+        trackingStarted = true
+
+        -- Baca moneyLabel
+        local moneyLabel = player:FindFirstChild("PlayerGui")
+            and player.PlayerGui:FindFirstChild("Main")
+            and player.PlayerGui.Main:FindFirstChild("Container")
+            and player.PlayerGui.Main.Container:FindFirstChild("Hub")
+            and player.PlayerGui.Main.Container.Hub:FindFirstChild("CashFrame")
+            and player.PlayerGui.Main.Container.Hub.CashFrame:FindFirstChild("Frame")
+            and player.PlayerGui.Main.Container.Hub.CashFrame.Frame:FindFirstChild("TextLabel")
+
+        if moneyLabel then
+            uangText.Text = moneyLabel.Text
+
+            local lastEarn  = os.time()
+            local prevMoney = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+
+            moneyLabel:GetPropertyChangedSignal("Text"):Connect(function()
+                local cur = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+                if cur ~= prevMoney then
+                    prevMoney     = cur
+                    lastEarn      = os.time()
+                    uangText.Text = moneyLabel.Text
+                end
+            end)
+
+            task.spawn(function()
+                while true do
+                    task.wait(1)
+                    local elapsed = os.time() - lastEarn
+                    earnText.Text = string.format(
+                        "Earn terakhir: %02d menit %02d detik",
+                        math.floor(elapsed / 60), elapsed % 60
+                    )
+                    if elapsed >= 360 and not ng.Visible then
+                        ng.Visible = true
+                    end
+                end
+            end)
+
+            task.spawn(function()
+                task.wait(3)
+                local initFmt = formatUang(moneyLabel.Text)
+                local initRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+                uangText.Text = moneyLabel.Text
+                print("[SHOWDATA] Init — " .. initFmt .. " (" .. initRaw .. ")")
+                sendInit(initFmt)
+                apiUpdate(initRaw)
+                while true do
+                    task.wait(60)
+                    local curFmt = formatUang(moneyLabel.Text)
+                    local curRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
+                    sendUpdate(curFmt)
+                    safeApiUpdate(curRaw)
+                end
+            end)
+        else
+            uangText.Text = "⚠ MoneyLabel tidak ditemukan"
+            print("[SHOWDATA] MoneyLabel tidak ditemukan")
         end
     end
-end)
+end
 
--- Kirim data awal, lalu update setiap 60 detik
-task.spawn(function()
-    task.wait(3)
-    local initFmt = formatUang(moneyLabel.Text)
-    local initRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
-    print("[SHOWDATA] Init — " .. initFmt .. " (" .. initRaw .. ")")
-    sendInit(initFmt)
-    apiUpdate(initRaw)
-    while true do
-        task.wait(60)
-        local curFmt = formatUang(moneyLabel.Text)
-        local curRaw = tonumber((moneyLabel.Text:gsub("[^%d]", ""))) or 0
-        sendUpdate(curFmt)
-        safeApiUpdate(curRaw)
-    end
-end)
+local function hideMainGui()
+    guiShown           = false
+    shadow.Visible     = false
+    mainF.Visible      = false
+    triggerBtn.Visible = true
+end
+
+triggerBtn.MouseButton1Click:Connect(showMainGui)
+closeBtn.MouseButton1Click:Connect(hideMainGui)
 
 print("[SHOWDATA] Running — " .. player.Name)
