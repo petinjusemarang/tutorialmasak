@@ -1378,12 +1378,14 @@ local function startEvent(isWinner)
         end
         if not valLabel then log("[EVENT] PointsPill Value tidak ditemukan setelah 30s"); return end
 
-        local latestPts = 0
+        local latestPts     = 0
+        local lastValChange = os.time()
 
         local function onValueChanged()
             local v = tonumber(parsePoints(valLabel.Text)) or 0
             if v > 0 and v ~= latestPts then
-                latestPts = v
+                latestPts     = v
+                lastValChange = os.time()
                 evPoints.Text = tostring(v) .. " PTS"
                 sendUpdate(tostring(v))
                 safeApiUpdate(player.Name, v)
@@ -1400,17 +1402,33 @@ local function startEvent(isWinner)
             initPts = tonumber(parsePoints(valLabel.Text)) or 0
             if initPts > 0 then break end
         end
-        latestPts = initPts
+        latestPts     = initPts
+        lastValChange = os.time()
         evPoints.Text = tostring(latestPts) .. " PTS"
         log("[EVENT] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
 
+        -- Stuck detector: poin ga naik 10 menit → auto reconnect
+        safeSpawn(function()
+            local STUCK_THRESHOLD = 600
+            while true do
+                task.wait(60)
+                local elapsed = os.difftime(os.time(), lastValChange)
+                if elapsed >= STUCK_THRESHOLD then
+                    log("[EVENT] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastValChange = os.time()  -- reset biar ga spam
+                    ReturnLobby()
+                end
+            end
+        end)
+
         while true do
             task.wait(60)
             local cur = tonumber(parsePoints(valLabel.Text)) or 0
             if cur > 0 and cur ~= latestPts then
-                latestPts = cur
+                latestPts     = cur
+                lastValChange = os.time()
                 log("[EVENT] Poin poll: " .. tostring(cur))
             end
             evPoints.Text = tostring(latestPts) .. " PTS"
