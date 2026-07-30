@@ -1059,43 +1059,53 @@ do
         local elapsed = 0
         local sinceScoreboardCheck = 0
 
+        local wasUnseated = false
+
         while elapsed < RaceConfig.CheckpointLegTimeout do
             local vehicle = getVehicle()
             if not vehicle then
-                rlog("Not seated in a vehicle, checking whether the race already ended for the group...")
-                if waitForScoreboard(10) then
-                    rlog("Confirmed: Scoreboard appeared, race ended for the group. Stopping checkpoints.")
-                    return true
-                end
-                rlog("Vehicle still missing and no Scoreboard, cannot drive to checkpoint " .. index)
-                return false
-            end
-
-            local currentPos = vehicle:GetPivot().Position
-            local offset      = targetPosition - currentPos
-            local distance    = offset.Magnitude
-
-            if distance <= RaceConfig.ArriveDistance then
-                rlog(string.format("Checkpoint %d/%d reached", index, total))
-                return true
-            end
-
-            local dt = RunService.Heartbeat:Wait()
-            elapsed = elapsed + dt
-
-            sinceScoreboardCheck = sinceScoreboardCheck + dt
-            if sinceScoreboardCheck >= 0.5 then
-                sinceScoreboardCheck = 0
                 if isScoreboardVisible() then
-                    rlog("Scoreboard appeared mid-drive (race already ended for the group), stopping checkpoints")
+                    rlog("Scoreboard appeared while not seated, race ended for the group. Langsung Race Again.")
                     return true
                 end
-            end
+                -- Kepental/keluar dari mobil (tabrakan, dsb.) tapi race belum
+                -- selesai buat grup — jangan nyerah karena leg timeout. Tunggu
+                -- terus (gak makan budget CheckpointLegTimeout) sampai keseat
+                -- lagi ATAU scoreboard-nya muncul (race beneran kelar buat grup).
+                if not wasUnseated then
+                    rlog("Not seated in a vehicle (mungkin terlempar), menunggu reseat / scoreboard...")
+                    wasUnseated = true
+                end
+                task.wait(1)
+            else
+                wasUnseated = false
 
-            local direction = offset.Unit
-            local step       = math.min(speed * dt, distance)
-            local newPos     = currentPos + direction * step
-            vehicle:PivotTo(CFrame.lookAt(newPos, newPos + direction))
+                local currentPos = vehicle:GetPivot().Position
+                local offset      = targetPosition - currentPos
+                local distance    = offset.Magnitude
+
+                if distance <= RaceConfig.ArriveDistance then
+                    rlog(string.format("Checkpoint %d/%d reached", index, total))
+                    return true
+                end
+
+                local dt = RunService.Heartbeat:Wait()
+                elapsed = elapsed + dt
+
+                sinceScoreboardCheck = sinceScoreboardCheck + dt
+                if sinceScoreboardCheck >= 0.5 then
+                    sinceScoreboardCheck = 0
+                    if isScoreboardVisible() then
+                        rlog("Scoreboard appeared mid-drive (race already ended for the group), stopping checkpoints")
+                        return true
+                    end
+                end
+
+                local direction = offset.Unit
+                local step       = math.min(speed * dt, distance)
+                local newPos     = currentPos + direction * step
+                vehicle:PivotTo(CFrame.lookAt(newPos, newPos + direction))
+            end
         end
 
         rlog(string.format("Timeout driving to checkpoint %d/%d", index, total))
@@ -1303,7 +1313,12 @@ do
                 state = requeueForNextLap() and STATE.INTERACT_NPC or STATE.FAILED
 
             elseif state == STATE.FAILED then
-                rlog("Race Nostalgia failed.")
+                -- Jangan cuma diem — kalau state machine gagal total (mis. sempet
+                -- terlempar dari mobil kelamaan dan gak pernah keseat lagi),
+                -- gak ada yang manggil RaceAgain/balik ke NPC. Reconnect biar
+                -- brain.lua di luar auto rejoin + mulai race baru dari awal.
+                rlog("Race Nostalgia failed. Reconnecting to recover...")
+                ReturnLobby()
                 break
             end
         end
