@@ -1324,20 +1324,21 @@ local function startEvent(isWinner)
     evGui.Parent       = CoreGui
 
     local evFrame = Instance.new("Frame", evGui)
-    evFrame.Size             = UDim2.new(0, 280, 0, 100)
-    evFrame.Position         = UDim2.new(1, -295, 0, 15)
+    evFrame.Size             = UDim2.new(0, 480, 0, 220)
+    evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
+    evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
     evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
     evFrame.BackgroundTransparency = 0.15
     evFrame.BorderSizePixel  = 0
-    Instance.new("UICorner", evFrame).CornerRadius = UDim.new(0, 12)
+    Instance.new("UICorner", evFrame).CornerRadius = UDim.new(0, 18)
 
     local stroke = Instance.new("UIStroke", evFrame)
     stroke.Color     = Color3.fromRGB(80, 160, 255)
-    stroke.Thickness = 1.5
+    stroke.Thickness = 2.5
 
     local evName = Instance.new("TextLabel", evFrame)
-    evName.Size                   = UDim2.new(1, -16, 0, 42)
-    evName.Position               = UDim2.new(0, 8, 0, 6)
+    evName.Size                   = UDim2.new(1, -24, 0, 70)
+    evName.Position               = UDim2.new(0, 12, 0, 16)
     evName.BackgroundTransparency = 1
     evName.Font                   = Enum.Font.GothamBlack
     evName.TextScaled             = true
@@ -1348,8 +1349,8 @@ local function startEvent(isWinner)
     evName.Text                   = player.Name .. (isWinner and " (WINNER)" or " (FOLLOWER)")
 
     local evPoints = Instance.new("TextLabel", evFrame)
-    evPoints.Size                   = UDim2.new(1, -16, 0, 46)
-    evPoints.Position               = UDim2.new(0, 8, 0, 48)
+    evPoints.Size                   = UDim2.new(1, -24, 0, 110)
+    evPoints.Position               = UDim2.new(0, 12, 0, 92)
     evPoints.BackgroundTransparency = 1
     evPoints.Font                   = Enum.Font.GothamBlack
     evPoints.TextScaled             = true
