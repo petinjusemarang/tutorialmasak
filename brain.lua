@@ -23,6 +23,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService       = game:GetService("HttpService")
 local CoreGui           = game:GetService("CoreGui")
 local VirtualUser       = game:GetService("VirtualUser")
+local Workspace         = game:GetService("Workspace")
+local RunService        = game:GetService("RunService")
 local player            = Players.LocalPlayer
 local rp                = ReplicatedStorage
 
@@ -821,10 +823,480 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs
 end
 
 -- ═══════════════════════════════════
---  MODE: EVENT
+--  MODE: EVENT (Race Nostalgia)
+--  Role (winner/follower) datang dari API jump_mode — tidak ada pilihan
+--  manual in-game lagi. nojump = winner (create+start lobby), jump = follower
+--  (join lobby, ikut jalan).
 -- ═══════════════════════════════════
-local function startEvent()
-    log("[EVENT] Starting for " .. player.Name)
+local RaceBrain = {}
+do
+    local RaceConfig = {
+        LobbyName              = "ProfessionalUnemploy's Lobby",
+        LobbyTimeout           = 60,
+        RetryDelay             = 1,
+        RaceStartTimeout       = 120,
+        StartRaceRetryInterval = 5,
+        StartRaceLoopTimeout   = 300,
+        WinnerDriveSpeed       = 220,
+        FollowerDriveSpeed     = 190,
+        ArriveDistance         = 12,
+        CheckpointLegTimeout   = 30,
+        ScoreboardTimeout      = 60,
+        ScoreboardWaitAttempts = 5,
+        RaceAgainSettleDelay   = 3,
+        RequeueAttempts        = 10,
+    }
+    local IsWinner = true
+
+    local function rlog(msg) log("[RACE] " .. tostring(msg)) end
+
+    local function retry(fn, attempts, delay, label)
+        attempts = attempts or 5
+        delay    = delay or RaceConfig.RetryDelay
+        for i = 1, attempts do
+            local ok, err = pcall(fn)
+            if ok then return true end
+            rlog(string.format("%s failed (%d/%d): %s", label or "action", i, attempts, tostring(err)))
+            task.wait(delay)
+        end
+        return false
+    end
+
+    local function waitUntil(conditionFn, timeout, interval, label)
+        interval = interval or 0.5
+        local elapsed = 0
+        while elapsed < timeout do
+            local ok, result = pcall(conditionFn)
+            if ok and result then return result end
+            task.wait(interval)
+            elapsed = elapsed + interval
+        end
+        rlog("Timeout: " .. (label or "condition") .. " not met after " .. timeout .. "s")
+        return nil
+    end
+
+    -- ── Remotes ──
+    local remoteCache = {}
+    local function remoteInit()
+        local ok, folder = pcall(function()
+            return rp:WaitForChild("RaceRemotes", 15)
+        end)
+        if not ok or not folder then rlog("RaceRemotes folder not found"); return false end
+
+        local names = { "GetLobbies", "CreateLobby", "SelectCar", "ToggleReady", "StartRace", "JoinLobby", "RaceAgainTeleport", "LeaveLobby" }
+        for _, name in ipairs(names) do
+            local remOk, remote = pcall(function() return folder:WaitForChild(name, 15) end)
+            if not remOk or not remote then rlog("Remote not found: " .. name); return false end
+            remoteCache[name] = remote
+        end
+        rlog("RaceRemotes ready")
+        return true
+    end
+
+    local function getLobbies() return remoteCache.GetLobbies:InvokeServer() end
+    local function createLobbyRemote(name) remoteCache.CreateLobby:FireServer(name) end
+    local function selectCarRemote(id, name) remoteCache.SelectCar:FireServer(id, name) end
+    local function toggleReadyRemote() remoteCache.ToggleReady:FireServer() end
+    local function startRaceRemote() remoteCache.StartRace:FireServer() end
+    local function joinLobbyRemote(num) remoteCache.JoinLobby:FireServer(num) end
+    local function raceAgainTeleportRemote() remoteCache.RaceAgainTeleport:FireServer() end
+    local function leaveLobbyRemote() remoteCache.LeaveLobby:FireServer() end
+
+    -- ── Car manager ──
+    local function getRandomRaceCar()
+        local ok, scrollingFrame = pcall(function()
+            return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
+        end)
+        if not ok or not scrollingFrame then return nil end
+
+        local cars = {}
+        for _, car in ipairs(scrollingFrame:GetChildren()) do
+            if car:IsA("Frame") then
+                local carId   = car.Name
+                local carName = carId
+                local label = car:FindFirstChildWhichIsA("TextLabel", true)
+                if label then carName = label.Text end
+                table.insert(cars, { Id = carId, Name = carName })
+            end
+        end
+        if #cars == 0 then return nil end
+        math.randomseed(tick())
+        local selected = cars[math.random(1, #cars)]
+        return selected.Id, selected.Name
+    end
+
+    local function selectRandomCar()
+        local carId, carName = getRandomRaceCar()
+        if not carId then rlog("No car found in Spawner ScrollingFrame"); return false end
+        local ok = retry(function() selectCarRemote(carId, carName) end, 5, RaceConfig.RetryDelay, "SelectCar")
+        if ok then rlog("Car selected: " .. carId .. " (" .. carName .. ")") end
+        return ok
+    end
+
+    -- ── Player detector ──
+    local function waitForRaceGui(timeout)
+        return waitUntil(function()
+            local pg = player:FindFirstChild("PlayerGui")
+            return pg and pg:FindFirstChild("Race") and pg.Race:FindFirstChild("Container")
+        end, timeout or 15, 0.5, "Race GUI")
+    end
+
+    local function waitForRaceStart(timeout)
+        local label = waitUntil(function()
+            return player.PlayerGui.Race.Container.RaceHUD.TimerPanel.TimerLabel
+        end, 15, 0.5, "TimerLabel lookup")
+        if not label then return false end
+
+        local elapsed  = 0
+        local lastText = label.Text
+        while elapsed < timeout do
+            task.wait(1)
+            elapsed = elapsed + 1
+            local ok, currentText = pcall(function() return label.Text end)
+            if ok and currentText ~= lastText then return true end
+            if ok then lastText = currentText end
+        end
+        rlog("Timeout: race timer never started ticking after " .. timeout .. "s")
+        return false
+    end
+
+    local function waitForScoreboard(timeout)
+        return waitUntil(function()
+            return player.PlayerGui.Race.Container.Scoreboard.Visible
+        end, timeout, 0.5, "Scoreboard visible")
+    end
+
+    local function isScoreboardVisible()
+        local ok, visible = pcall(function()
+            return player.PlayerGui.Race.Container.Scoreboard.Visible
+        end)
+        return ok and visible
+    end
+
+    -- ── Lobby manager ──
+    local lobbyCreated = false
+    local function createLobby()
+        if lobbyCreated then rlog("Lobby already created, skip"); return true end
+        local ok = retry(function() createLobbyRemote(RaceConfig.LobbyName) end, 5, RaceConfig.RetryDelay, "CreateLobby")
+        if ok then lobbyCreated = true; rlog("Lobby created: " .. RaceConfig.LobbyName) end
+        return ok
+    end
+
+    local function findLobby(timeout)
+        return waitUntil(function()
+            local lobbyList = player.PlayerGui.Race.Container.RaceMenu.JoinSection.LobbyList
+            for _, child in ipairs(lobbyList:GetChildren()) do
+                local num = child.Name:match("^Lobby_(%d+)$")
+                if num then return tonumber(num) end
+            end
+            return nil
+        end, timeout or RaceConfig.LobbyTimeout, 1, "FindLobby")
+    end
+
+    local function joinLobby(lobbyNumber)
+        return retry(function() joinLobbyRemote(lobbyNumber) end, 5, RaceConfig.RetryDelay, "JoinLobby")
+    end
+
+    local function resetLobby()
+        lobbyCreated = false
+    end
+
+    -- ── Checkpoint manager ──
+    local CHECKPOINT_POSITIONS = {
+        Vector3.new(-481.86, 27.92, 2983.69),
+        Vector3.new(-717.14, 27.66, 3391.15),
+        Vector3.new(-863.58, 55.90, 3668.89),
+        Vector3.new(-1137.39, 42.43, 4085.45),
+        Vector3.new(-1430.78, 28.54, 4627.20),
+        Vector3.new(-1698.45, 28.54, 5089.70),
+        Vector3.new(-2308.32, 29.14, 6149.44),
+        Vector3.new(-2669.72, 37.53, 6770.76),
+        Vector3.new(-2630.33, 37.60, 7130.58),
+        Vector3.new(-2399.24, 23.71, 8001.27),
+        Vector3.new(-2166.83, 3.84, 8865.56),
+        Vector3.new(-2166.83, 3.84, 8865.56),
+        Vector3.new(-1698.06, 3.84, 10604.98),
+        Vector3.new(-1465.23, 3.84, 11476.92),
+        Vector3.new(-1332.28, 3.84, 12362.87),
+        Vector3.new(-1333.39, 3.84, 13163.67),
+        Vector3.new(-1331.14, 3.84, 14062.68),
+        Vector3.new(-1418.81, 3.84, 14950.71),
+        Vector3.new(-1650.48, 3.84, 15819.38),
+        Vector3.new(-1650.52, 3.84, 15820.18),
+        Vector3.new(-2116.05, 3.84, 17558.38),
+        Vector3.new(-2350.62, 3.84, 18429.97),
+        Vector3.new(-2503.89, 3.84, 19013.32),
+        Vector3.new(-2477.80, 3.84, 19329.16),
+        Vector3.new(-2243.25, 3.84, 20197.87),
+    }
+    local FINISH_POSITION = Vector3.new(-2019.57, 4.93, 21066.38)
+
+    local function getVehicle()
+        local character = player.Character
+        local humanoid  = character and character:FindFirstChildOfClass("Humanoid")
+        local seatPart  = humanoid and humanoid.SeatPart
+        return seatPart and seatPart:FindFirstAncestorOfClass("Model")
+    end
+
+    local function driveTo(targetPosition, index, total)
+        local speed = IsWinner and RaceConfig.WinnerDriveSpeed or RaceConfig.FollowerDriveSpeed
+        local elapsed = 0
+        local sinceScoreboardCheck = 0
+
+        while elapsed < RaceConfig.CheckpointLegTimeout do
+            local vehicle = getVehicle()
+            if not vehicle then
+                rlog("Not seated in a vehicle, checking whether the race already ended for the group...")
+                if waitForScoreboard(10) then
+                    rlog("Confirmed: Scoreboard appeared, race ended for the group. Stopping checkpoints.")
+                    return true
+                end
+                rlog("Vehicle still missing and no Scoreboard, cannot drive to checkpoint " .. index)
+                return false
+            end
+
+            local currentPos = vehicle:GetPivot().Position
+            local offset      = targetPosition - currentPos
+            local distance    = offset.Magnitude
+
+            if distance <= RaceConfig.ArriveDistance then
+                rlog(string.format("Checkpoint %d/%d reached", index, total))
+                return true
+            end
+
+            local dt = RunService.Heartbeat:Wait()
+            elapsed = elapsed + dt
+
+            sinceScoreboardCheck = sinceScoreboardCheck + dt
+            if sinceScoreboardCheck >= 0.5 then
+                sinceScoreboardCheck = 0
+                if isScoreboardVisible() then
+                    rlog("Scoreboard appeared mid-drive (race already ended for the group), stopping checkpoints")
+                    return true
+                end
+            end
+
+            local direction = offset.Unit
+            local step       = math.min(speed * dt, distance)
+            local newPos     = currentPos + direction * step
+            vehicle:PivotTo(CFrame.lookAt(newPos, newPos + direction))
+        end
+
+        rlog(string.format("Timeout driving to checkpoint %d/%d", index, total))
+        return false
+    end
+
+    local function runAllCheckpoints()
+        local totalLegs = #CHECKPOINT_POSITIONS + 1
+        rlog("Driving through " .. totalLegs .. " checkpoints...")
+        for i, position in ipairs(CHECKPOINT_POSITIONS) do
+            if not driveTo(position, i, totalLegs) then return false end
+        end
+        if not driveTo(FINISH_POSITION, totalLegs, totalLegs) then return false end
+        rlog("Last waypoint reached, waiting for server to confirm finish...")
+        return true
+    end
+
+    -- ── Ready (shared by winner + follower, never spammed) ──
+    local readyToggled = false
+    local function toggleReadyOnce()
+        if readyToggled then return true end
+        local ok = retry(function() toggleReadyRemote() end, 5, RaceConfig.RetryDelay, "ToggleReady")
+        if ok then readyToggled = true; rlog("Ready toggled") end
+        return ok
+    end
+    local function resetReadyState()
+        readyToggled = false
+    end
+
+    -- ── Teleport / interact NPC ──
+    local function teleportToNpc()
+        local npc = waitUntil(function()
+            return Workspace.Etc.Race.NPC:FindFirstChild("DA0ZA")
+        end, 15, 0.5, "NPC lookup")
+        if not npc then rlog("NPC DA0ZA not found"); return false end
+
+        local targetCFrame
+        if npc:IsA("BasePart") then
+            targetCFrame = npc.CFrame
+        else
+            local part = npc:IsA("Model") and (npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart", true))
+            targetCFrame = part and part.CFrame
+        end
+        if not targetCFrame then rlog("NPC has no usable position"); return false end
+
+        local character = player.Character or player.CharacterAdded:Wait()
+        local hrp = character:WaitForChild("HumanoidRootPart", 10)
+        if not hrp then rlog("HumanoidRootPart not found"); return false end
+
+        hrp.CFrame = targetCFrame + Vector3.new(0, 3, 5)
+        task.wait(1)
+        rlog("Teleported to NPC")
+        return true
+    end
+
+    local function interactNpc()
+        local ok = retry(function()
+            local prompt = Workspace.Etc.Race.NPC.DA0ZA.HumanoidRootPart.Prompt
+            fireproximityprompt(prompt)
+        end, 5, RaceConfig.RetryDelay, "InteractNPC")
+        if ok then rlog("Interacted with NPC") end
+        return ok
+    end
+
+    local function closeScoreboard()
+        local ok = retry(function()
+            player.PlayerGui.Race.Container.Scoreboard.Visible = false
+        end, 5, RaceConfig.RetryDelay, "CloseScoreboard")
+        if ok then rlog("Scoreboard closed") end
+        return ok
+    end
+
+    -- ── Winner controller ──
+    local function spamStartRaceUntilStarted()
+        local label = waitUntil(function()
+            return player.PlayerGui.Race.Container.RaceHUD.TimerPanel.TimerLabel
+        end, 15, 0.5, "TimerLabel lookup")
+        if not label then rlog("TimerLabel not found, cannot confirm race start"); return false end
+
+        local baselineText = label.Text
+        local elapsed = 0
+        while elapsed < RaceConfig.StartRaceLoopTimeout do
+            pcall(function() startRaceRemote() end)
+            task.wait(RaceConfig.StartRaceRetryInterval)
+            elapsed = elapsed + RaceConfig.StartRaceRetryInterval
+
+            local ok, currentText = pcall(function() return label.Text end)
+            if ok and currentText ~= baselineText then rlog("Race started!"); return true end
+            rlog(string.format("Race not started yet, retrying StartRace... (%ds elapsed)", elapsed))
+        end
+        rlog("Race never started after " .. RaceConfig.StartRaceLoopTimeout .. "s of retrying")
+        return false
+    end
+
+    local function runWinner()
+        rlog("Role: WINNER")
+        if not createLobby() then return false end
+        task.wait(RaceConfig.RetryDelay)
+        if not selectRandomCar() then return false end
+        if not toggleReadyOnce() then return false end
+        rlog("Firing StartRace every " .. RaceConfig.StartRaceRetryInterval .. "s until the race actually begins...")
+        return spamStartRaceUntilStarted()
+    end
+
+    -- ── Follower controller ──
+    local function runFollower()
+        rlog("Role: FOLLOWER")
+        local lobbyNumber = findLobby(RaceConfig.LobbyTimeout)
+        if not lobbyNumber then return false end
+        rlog("Found lobby #" .. lobbyNumber)
+        if not joinLobby(lobbyNumber) then return false end
+        task.wait(RaceConfig.RetryDelay)
+        if not selectRandomCar() then return false end
+        if not toggleReadyOnce() then return false end
+        rlog("Ready. Waiting for winner to start race...")
+        return true
+    end
+
+    -- ── Requeue for next lap ──
+    local function requeueForNextLap()
+        for attempt = 1, RaceConfig.RequeueAttempts do
+            resetLobby()
+            resetReadyState()
+
+            local raceAgainOk = retry(function() raceAgainTeleportRemote() end, 5, RaceConfig.RetryDelay, "RaceAgainTeleport")
+            if raceAgainOk then
+                task.wait(RaceConfig.RaceAgainSettleDelay)
+                local leftOk = retry(function() leaveLobbyRemote() end, 5, RaceConfig.RetryDelay, "LeaveLobby")
+                if leftOk then return true end
+            end
+
+            rlog(string.format("Requeue sequence failed (attempt %d/%d), retrying from RaceAgainTeleport...", attempt, RaceConfig.RequeueAttempts))
+            task.wait(RaceConfig.RetryDelay)
+        end
+        rlog("Requeue sequence never succeeded after " .. RaceConfig.RequeueAttempts .. " attempts")
+        return false
+    end
+
+    -- ── State machine ──
+    local STATE = {
+        INIT = "INIT", TELEPORT_NPC = "TELEPORT_NPC", INTERACT_NPC = "INTERACT_NPC",
+        OPEN_MENU = "OPEN_MENU", ROLE_DETECTION = "ROLE_DETECTION",
+        WINNER_FLOW = "WINNER_FLOW", FOLLOWER_FLOW = "FOLLOWER_FLOW",
+        WAIT_RACE_START = "WAIT_RACE_START", RUN_CHECKPOINTS = "RUN_CHECKPOINTS",
+        WAIT_SCOREBOARD = "WAIT_SCOREBOARD", REQUEUE = "REQUEUE", FAILED = "FAILED",
+    }
+
+    function RaceBrain.run(isWinner)
+        IsWinner = isWinner
+        rlog("Race Nostalgia starting as " .. (IsWinner and "WINNER" or "FOLLOWER") .. "...")
+        local state = STATE.INIT
+
+        while true do
+            if state == STATE.INIT then
+                state = remoteInit() and STATE.TELEPORT_NPC or STATE.FAILED
+
+            elseif state == STATE.TELEPORT_NPC then
+                rlog("Teleporting to NPC...")
+                state = teleportToNpc() and STATE.INTERACT_NPC or STATE.FAILED
+
+            elseif state == STATE.INTERACT_NPC then
+                rlog("Interacting with NPC...")
+                state = interactNpc() and STATE.OPEN_MENU or STATE.FAILED
+
+            elseif state == STATE.OPEN_MENU then
+                rlog("Opening race menu...")
+                local opened = retry(function() getLobbies() end, 5, RaceConfig.RetryDelay, "OpenMenu")
+                state = (opened and waitForRaceGui(15)) and STATE.ROLE_DETECTION or STATE.FAILED
+
+            elseif state == STATE.ROLE_DETECTION then
+                state = IsWinner and STATE.WINNER_FLOW or STATE.FOLLOWER_FLOW
+
+            elseif state == STATE.WINNER_FLOW then
+                state = runWinner() and STATE.WAIT_RACE_START or STATE.FAILED
+
+            elseif state == STATE.FOLLOWER_FLOW then
+                state = runFollower() and STATE.WAIT_RACE_START or STATE.FAILED
+
+            elseif state == STATE.WAIT_RACE_START then
+                rlog("Waiting for race to start (timer ticking)...")
+                state = waitForRaceStart(RaceConfig.RaceStartTimeout) and STATE.RUN_CHECKPOINTS or STATE.FAILED
+
+            elseif state == STATE.RUN_CHECKPOINTS then
+                state = runAllCheckpoints() and STATE.WAIT_SCOREBOARD or STATE.FAILED
+
+            elseif state == STATE.WAIT_SCOREBOARD then
+                rlog("Waiting for Scoreboard (all racers finished)...")
+                local scoreboardShown = false
+                for attempt = 1, RaceConfig.ScoreboardWaitAttempts do
+                    if waitForScoreboard(RaceConfig.ScoreboardTimeout) then
+                        scoreboardShown = true
+                        break
+                    end
+                    rlog(string.format("Still no Scoreboard after attempt %d/%d, continuing to wait...", attempt, RaceConfig.ScoreboardWaitAttempts))
+                end
+
+                if scoreboardShown then
+                    closeScoreboard()
+                    state = STATE.REQUEUE
+                else
+                    state = STATE.FAILED
+                end
+
+            elseif state == STATE.REQUEUE then
+                rlog("Finished! Requeuing for the next lap...")
+                state = requeueForNextLap() and STATE.INTERACT_NPC or STATE.FAILED
+
+            elseif state == STATE.FAILED then
+                rlog("Race Nostalgia failed.")
+                break
+            end
+        end
+    end
+end
+
+local function startEvent(isWinner)
+    log("[EVENT] Starting Race Nostalgia for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER"))
     serverLock()
 
     -- Hapus phone / hub
@@ -873,7 +1345,7 @@ local function startEvent()
     evName.TextStrokeTransparency = 0.4
     evName.TextStrokeColor3       = Color3.new(0, 0, 0)
     evName.TextXAlignment         = Enum.TextXAlignment.Center
-    evName.Text                   = player.Name
+    evName.Text                   = player.Name .. (isWinner and " (WINNER)" or " (FOLLOWER)")
 
     local evPoints = Instance.new("TextLabel", evFrame)
     evPoints.Size                   = UDim2.new(1, -16, 0, 46)
@@ -887,33 +1359,30 @@ local function startEvent()
     evPoints.TextXAlignment         = Enum.TextXAlignment.Center
     evPoints.Text                   = "... PTS"
 
+    -- ── Fetch jumlah point ke web (sama seperti mode lain) ──
     safeSpawn(function()
-        local pg = player:WaitForChild("PlayerGui", 15)
-        if not pg then log("[EVENT] PlayerGui not found"); return end
-        local eventShop = pg:WaitForChild("EVENT SHOP", 15)
-        if not eventShop then log("[EVENT] EVENT SHOP GUI not found"); return end
-        local valLabel = eventShop
-            :WaitForChild("Shop", 10)
-            :WaitForChild("TitleBar", 10)
-            :WaitForChild("PointsPill", 10)
-            :WaitForChild("Value", 10)
-        if not valLabel then log("[EVENT] PointsPill Value not found"); return end
-
         local function parsePoints(txt)
-            txt = tostring(txt or "")
-            local nums = {}
-            for n in txt:gmatch("%d+") do nums[#nums+1] = n end
-            return tonumber(table.concat(nums)) or 0
+            local digits = (tostring(txt or ""):gsub("%D", ""))
+            if digits == "" then digits = "0" end
+            return digits
         end
 
-        local latestPts   = 0
-        local lastValChange = os.time()
+        local valLabel = nil
+        for _ = 1, 30 do
+            local ok, lbl = pcall(function()
+                return player.PlayerGui.Race.Container.Shop.TitleBar.PointsPill.Value
+            end)
+            if ok and lbl then valLabel = lbl; break end
+            task.wait(1)
+        end
+        if not valLabel then log("[EVENT] PointsPill Value tidak ditemukan setelah 30s"); return end
+
+        local latestPts = 0
 
         local function onValueChanged()
-            local v = parsePoints(valLabel.Text)
+            local v = tonumber(parsePoints(valLabel.Text)) or 0
             if v > 0 and v ~= latestPts then
-                latestPts   = v
-                lastValChange = os.time()
+                latestPts = v
                 evPoints.Text = tostring(v) .. " PTS"
                 sendUpdate(tostring(v))
                 safeApiUpdate(player.Name, v)
@@ -927,49 +1396,31 @@ local function startEvent()
         local initPts = 0
         for _ = 1, 20 do
             task.wait(1)
-            initPts = parsePoints(valLabel.Text)
+            initPts = tonumber(parsePoints(valLabel.Text)) or 0
             if initPts > 0 then break end
         end
-        if latestPts == 0 then latestPts = initPts end
-        lastValChange = os.time()
+        latestPts = initPts
         evPoints.Text = tostring(latestPts) .. " PTS"
         log("[EVENT] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
 
-        -- Stuck detector: poin ga naik 10 menit → relog
-        safeSpawn(function()
-            local STUCK_THRESHOLD = 600
-            while true do
-                task.wait(60)
-                local elapsed = os.difftime(os.time(), lastValChange)
-                if elapsed >= STUCK_THRESHOLD then
-                    log("[EVENT] Stuck " .. math.floor(elapsed/60) .. "m — auto relog")
-                    lastValChange = os.time()  -- reset biar ga spam
-                    ReturnLobby()
-                end
-            end
-        end)
-
         while true do
             task.wait(60)
-            local cur = parsePoints(valLabel.Text)
+            local cur = tonumber(parsePoints(valLabel.Text)) or 0
             if cur > 0 and cur ~= latestPts then
-                latestPts   = cur
-                lastValChange = os.time()
+                latestPts = cur
                 log("[EVENT] Poin poll: " .. tostring(cur))
             end
-            local sendVal = latestPts > 0 and latestPts or cur
-            evPoints.Text = tostring(sendVal) .. " PTS"
-            sendUpdate(tostring(sendVal))
-            safeApiUpdate(player.Name, sendVal)
+            evPoints.Text = tostring(latestPts) .. " PTS"
+            sendUpdate(tostring(latestPts))
+            safeApiUpdate(player.Name, latestPts)
         end
     end)
 
-    getgenv().key    = "411572f1-0a19-42fc-ab0c-f386ad74bad6"
-    getgenv().script = "Adha"
-    pcall(function()
-        loadstring(game:HttpGet("https://cdn.luviohub.xyz/"))()
+    -- ── Race state machine (adaptasi dari racenostalgia.lua) ──
+    safeSpawn(function()
+        RaceBrain.run(isWinner)
     end)
 end
 
@@ -1053,7 +1504,9 @@ local function resolveMode(data)
         else                       return "minigame_nojump" end
 
     elseif jenis == "event" then
-        return "event"
+        -- nojump = winner (create+start lobby), jump = follower (join lobby)
+        if jumpMode == "jump" then return "event_follower"
+        else                       return "event_winner" end
     end
 
     return nil
@@ -1273,8 +1726,11 @@ local function onIngame()
             task.wait(1)
             getgenv().minigame_nojump()
 
-        elseif mode == "event" then
-            startEvent()
+        elseif mode == "event_winner" then
+            startEvent(true)
+
+        elseif mode == "event_follower" then
+            startEvent(false)
         end
     end)
 end
