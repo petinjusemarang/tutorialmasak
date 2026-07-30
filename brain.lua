@@ -831,20 +831,20 @@ end
 local RaceBrain = {}
 do
     local RaceConfig = {
-        LobbyName              = "ProfessionalUnemploy's Lobby",
-        LobbyTimeout           = 60,
-        RetryDelay             = 1,
-        RaceStartTimeout       = 120,
-        StartRaceRetryInterval = 5,
-        StartRaceLoopTimeout   = 300,
-        WinnerDriveSpeed       = 220,
-        FollowerDriveSpeed     = 190,
-        ArriveDistance         = 12,
-        CheckpointLegTimeout   = 30,
-        ScoreboardTimeout      = 60,
-        ScoreboardWaitAttempts = 5,
-        RaceAgainSettleDelay   = 3,
-        RequeueAttempts        = 10,
+        LobbyName                 = "ProfessionalUnemploy's Lobby",
+        FollowerFindRetryInterval = 5, -- follower: re-poll + refresh GetLobbies tiap N detik sampai lobby winner muncul
+        RetryDelay                = 1,
+        RaceStartTimeout          = 120,
+        StartRaceRetryInterval    = 5,
+        StartRaceLoopTimeout      = 300,
+        WinnerDriveSpeed          = 220,
+        FollowerDriveSpeed        = 190,
+        ArriveDistance            = 12,
+        CheckpointLegTimeout      = 30,
+        ScoreboardTimeout         = 60,
+        ScoreboardWaitAttempts    = 5,
+        RaceAgainSettleDelay      = 3,
+        RequeueAttempts           = 10,
     }
     local IsWinner = true
 
@@ -982,15 +982,31 @@ do
         return ok
     end
 
-    local function findLobby(timeout)
-        return waitUntil(function()
-            local lobbyList = player.PlayerGui.Race.Container.RaceMenu.JoinSection.LobbyList
-            for _, child in ipairs(lobbyList:GetChildren()) do
-                local num = child.Name:match("^Lobby_(%d+)$")
-                if num then return tonumber(num) end
+    -- Winner kadang telat bikin lobby (baru selesai loading, dsb). Daripada
+    -- nyerah setelah satu timeout pendek, follower terus polling + refresh
+    -- GetLobbies tiap FollowerFindRetryInterval detik sampai lobby-nya muncul.
+    local function findLobby()
+        local attempt = 0
+        while true do
+            attempt = attempt + 1
+
+            local ok, num = pcall(function()
+                local lobbyList = player.PlayerGui.Race.Container.RaceMenu.JoinSection.LobbyList
+                for _, child in ipairs(lobbyList:GetChildren()) do
+                    local n = child.Name:match("^Lobby_(%d+)$")
+                    if n then return tonumber(n) end
+                end
+                return nil
+            end)
+            if ok and num then return num end
+
+            if attempt % 6 == 0 then
+                rlog("Lobby winner belum muncul, masih nunggu... (percobaan " .. attempt .. ")")
             end
-            return nil
-        end, timeout or RaceConfig.LobbyTimeout, 1, "FindLobby")
+
+            pcall(function() getLobbies() end) -- refresh, siapa tahu lobby baru saja dibuat
+            task.wait(RaceConfig.FollowerFindRetryInterval)
+        end
     end
 
     local function joinLobby(lobbyNumber)
@@ -1187,8 +1203,7 @@ do
     -- ── Follower controller ──
     local function runFollower()
         rlog("Role: FOLLOWER")
-        local lobbyNumber = findLobby(RaceConfig.LobbyTimeout)
-        if not lobbyNumber then return false end
+        local lobbyNumber = findLobby()
         rlog("Found lobby #" .. lobbyNumber)
         if not joinLobby(lobbyNumber) then return false end
         task.wait(RaceConfig.RetryDelay)
