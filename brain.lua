@@ -1526,9 +1526,13 @@ do
     local IsWinner = true
     local DeviceId = nil
 
-    -- Optional UI hook: set by startKonvoiEvent so the overlay can show
-    -- LEAVER/STAY as soon as each round's decision comes back.
+    -- Optional UI hooks: set by startKonvoiEvent so the overlay can show
+    -- LEAVER/STAY as soon as each round's decision comes back, and get reset
+    -- back to neutral when a fresh round starts (otherwise it keeps showing
+    -- last round's result while this round hasn't been decided yet, which
+    -- reads as "leaver isn't actually leaving" when it's just a stale label).
     KonvoiBrain.onLeaveStatus = nil
+    KonvoiBrain.onRoundReset  = nil
 
     local function klog(msg) log("[KONVOI] " .. tostring(msg)) end
 
@@ -1904,6 +1908,7 @@ do
 
         while true do
             if state == STATE.INIT then
+                if KonvoiBrain.onRoundReset then pcall(KonvoiBrain.onRoundReset) end
                 state = remoteInit() and STATE.TELEPORT_NPC or STATE.FAILED
 
             elseif state == STATE.TELEPORT_NPC then
@@ -1948,6 +1953,7 @@ do
 
             elseif state == STATE.REQUEUE then
                 klog("Looping back to the NPC for another round (role stays fixed)...")
+                if KonvoiBrain.onRoundReset then pcall(KonvoiBrain.onRoundReset) end
                 fetchShopDataOnce() -- refresh the points HUD's value for this round
                 resetLobby()
                 resetReadyState()
@@ -2048,6 +2054,14 @@ local function startKonvoiEvent(isWinner, deviceId)
             evStatus.Text       = "🏁 STAY — tunggu menang"
             evStatus.TextColor3 = Color3.fromRGB(90, 220, 140)
         end
+    end
+
+    -- Called at the start of every fresh round (INIT + REQUEUE) so the label
+    -- doesn't keep showing last round's LEAVER/STAY result while this
+    -- round's decision hasn't come back yet.
+    KonvoiBrain.onRoundReset = function()
+        evStatus.Text       = "MENUNGGU RONDE..."
+        evStatus.TextColor3 = Color3.fromRGB(180, 180, 190)
     end
 
     -- ── Fetch jumlah point ke web (sama seperti mode event lain) ──
