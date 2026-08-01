@@ -1922,7 +1922,18 @@ do
             elseif state == STATE.OPEN_MENU then
                 klog("Opening konvoi menu...")
                 local opened = retry(function() getLobbies() end, 5, KonvoiConfig.RetryDelay, "OpenMenu")
-                state = (opened and waitForRaceGui(15)) and STATE.ROLE_DETECTION or STATE.FAILED
+                state = (opened and waitForRaceGui(15)) and STATE.DETERMINE_LEAVE or STATE.FAILED
+
+            elseif state == STATE.DETERMINE_LEAVE then
+                -- Decided here (before joining/readying) instead of after the
+                -- race starts — by the time NostalgiaWaypoint actually spawns,
+                -- this round's decision is already known, so HANDLE_RACE_START
+                -- can act immediately instead of waiting on a live fetch mid-race.
+                isLeaverThisRound = fetchIsLeaverThisRound()
+                if KonvoiBrain.onLeaveStatus then
+                    pcall(KonvoiBrain.onLeaveStatus, isLeaverThisRound)
+                end
+                state = STATE.ROLE_DETECTION
 
             elseif state == STATE.ROLE_DETECTION then
                 state = IsWinner and STATE.WINNER_FLOW or STATE.FOLLOWER_FLOW
@@ -1935,14 +1946,7 @@ do
 
             elseif state == STATE.WAIT_RACE_START then
                 klog("Waiting for convoy to start (NostalgiaWaypoint to spawn)...")
-                state = waitForConvoiStart(KonvoiConfig.StartRaceLoopTimeout) and STATE.DETERMINE_LEAVE or STATE.FAILED
-
-            elseif state == STATE.DETERMINE_LEAVE then
-                isLeaverThisRound = fetchIsLeaverThisRound()
-                if KonvoiBrain.onLeaveStatus then
-                    pcall(KonvoiBrain.onLeaveStatus, isLeaverThisRound)
-                end
-                state = STATE.HANDLE_RACE_START
+                state = waitForConvoiStart(KonvoiConfig.StartRaceLoopTimeout) and STATE.HANDLE_RACE_START or STATE.FAILED
 
             elseif state == STATE.HANDLE_RACE_START then
                 if isLeaverThisRound then
