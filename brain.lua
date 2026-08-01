@@ -315,6 +315,22 @@ local function serverLock()
     end)
 end
 
+-- POST /api/konvoi-advance  { username } → bumps the group's rotation counter.
+-- Only the Winner device calls this (backend rejects it from anyone else),
+-- once per round, so the next round's leave-list rotates fairly.
+local function konvoiAdvance(username)
+    local res = req({
+        Url     = API_URL .. "/api/konvoi-advance",
+        Method  = "POST",
+        Headers = { ["Content-Type"] = "application/json", ["x-api-key"] = API_KEY },
+        Body    = HttpService:JSONEncode({ username = username }),
+    })
+    if res and res.StatusCode == 200 then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok then return data end
+    end
+end
+
 
 -- ═══════════════════════════════════
 --  ANTI-AFK (global, sekali)
@@ -1474,6 +1490,593 @@ local function startEvent(isWinner)
 end
 
 -- ═══════════════════════════════════
+--  MODE: EVENT KONVOI
+--  Adaptasi dari convoi.lua (KonvoiBrain V1), tapi Winner/Follower dan siapa
+--  yang LeaveLobby TIDAK lagi dipilih manual lewat GUI toggle — semuanya
+--  datang dari API (jump_mode untuk role, `leave` list untuk giliran leave).
+--  4 device masuk 1 lobby; setelah race mulai, backend nentuin 2 dari 4 yang
+--  LeaveLobby (prioritas Dummy, lalu rotasi) supaya 2 sisanya selesai & score.
+-- ═══════════════════════════════════
+local KonvoiBrain = {}
+do
+    local KonvoiConfig = {
+        LobbyName              = "Konvoi ProfessionalUnemploy",
+        LobbyMode              = "nostalgia",
+        RetryDelay             = 1,
+        StartRaceRetryInterval = 5,   -- winner refires StartRace tiap N detik (konvoi cuma butuh 4 player, bukan 5)
+        StartRaceLoopTimeout   = 300,
+        ResultTimeout          = 5,   -- lama Stay-pick cek popup Result sebelum nyerah nunggu dan tetap lanjut
+        RequeueSettleDelay     = 3,
+        LeaveListRetries       = 10,  -- percobaan poll leave-list sebelum default ke STAY
+    }
+    local IsWinner = true
+    local DeviceId = nil
+
+    local function klog(msg) log("[KONVOI] " .. tostring(msg)) end
+
+    local function retry(fn, attempts, delay, label)
+        attempts = attempts or 5
+        delay    = delay or KonvoiConfig.RetryDelay
+        for i = 1, attempts do
+            local ok, err = pcall(fn)
+            if ok then return true end
+            klog(string.format("%s failed (%d/%d): %s", label or "action", i, attempts, tostring(err)))
+            task.wait(delay)
+        end
+        return false
+    end
+
+    local function waitUntil(conditionFn, timeout, interval, label)
+        interval = interval or 0.5
+        local elapsed = 0
+        while elapsed < timeout do
+            local ok, result = pcall(conditionFn)
+            if ok and result then return result end
+            task.wait(interval)
+            elapsed = elapsed + interval
+        end
+        klog("Timeout: " .. (label or "condition") .. " not met after " .. timeout .. "s")
+        return nil
+    end
+
+    -- ── Remotes (RaceRemotes folder, shared with the racenostalgia event) ──
+    local remoteCache = {}
+    local function remoteInit()
+        local ok, folder = pcall(function() return rp:WaitForChild("RaceRemotes", 15) end)
+        if not ok or not folder then klog("RaceRemotes folder not found"); return false end
+
+        local names = { "GetLobbies", "CreateLobby", "SelectCar", "ToggleReady", "StartRace", "JoinLobby", "LeaveLobby" }
+        for _, name in ipairs(names) do
+            local remOk, remote = pcall(function() return folder:WaitForChild(name, 15) end)
+            if not remOk or not remote then klog("Remote not found: " .. name); return false end
+            remoteCache[name] = remote
+        end
+        klog("RaceRemotes ready")
+        return true
+    end
+
+    local function getLobbies() return remoteCache.GetLobbies:InvokeServer() end
+    local function createLobbyRemote(name, mode) remoteCache.CreateLobby:FireServer(name, mode) end
+    local function selectCarRemote(id, name) remoteCache.SelectCar:FireServer(id, name) end
+    local function toggleReadyRemote() remoteCache.ToggleReady:FireServer() end
+    local function startRaceRemote() remoteCache.StartRace:FireServer() end
+    local function joinLobbyRemote(num) remoteCache.JoinLobby:FireServer(num) end
+    local function leaveLobbyRemote() remoteCache.LeaveLobby:FireServer() end
+
+    -- ── Car manager ──
+    local function getRandomRaceCar()
+        local ok, scrollingFrame = pcall(function()
+            return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
+        end)
+        if not ok or not scrollingFrame then return nil end
+
+        local cars = {}
+        for _, car in ipairs(scrollingFrame:GetChildren()) do
+            if car:IsA("Frame") then
+                local carId   = car.Name
+                local carName = carId
+                local label = car:FindFirstChildWhichIsA("TextLabel", true)
+                if label then carName = label.Text end
+                table.insert(cars, { Id = carId, Name = carName })
+            end
+        end
+        if #cars == 0 then return nil end
+        math.randomseed(tick())
+        local selected = cars[math.random(1, #cars)]
+        return selected.Id, selected.Name
+    end
+
+    local function selectRandomCar()
+        local carId, carName = getRandomRaceCar()
+        if not carId then klog("No car found in Spawner ScrollingFrame"); return false end
+        local ok = retry(function() selectCarRemote(carId, carName) end, 5, KonvoiConfig.RetryDelay, "SelectCar")
+        if ok then klog("Car selected: " .. carId .. " (" .. carName .. ")") end
+        return ok
+    end
+
+    -- ── Player detector ──
+    local function waitForRaceGui(timeout)
+        return waitUntil(function()
+            local pg = player:FindFirstChild("PlayerGui")
+            return pg and pg:FindFirstChild("Race") and pg.Race:FindFirstChild("Container")
+        end, timeout or 15, 0.5, "Race GUI")
+    end
+
+    -- Konvoi has no RaceHUD timer to watch — the real signal the convoy
+    -- started is Workspace.NostalgiaWaypoint spawning in.
+    local function waitForConvoiStart(timeout)
+        return waitUntil(function()
+            return Workspace:FindFirstChild("NostalgiaWaypoint") ~= nil
+        end, timeout, 0.5, "NostalgiaWaypoint spawn")
+    end
+
+    local function waitForResult(timeout)
+        return waitUntil(function()
+            return player.PlayerGui.NostalgiaEvent.Container.Result.Visible
+        end, timeout, 0.5, "Result visible")
+    end
+
+    -- ── Lobby manager ──
+    local lobbyCreated = false
+    local function createLobby()
+        if lobbyCreated then klog("Lobby already created, skip"); return true end
+        local ok = retry(function() createLobbyRemote(KonvoiConfig.LobbyName, KonvoiConfig.LobbyMode) end,
+            5, KonvoiConfig.RetryDelay, "CreateLobby")
+        if ok then lobbyCreated = true; klog("Lobby created: " .. KonvoiConfig.LobbyName) end
+        return ok
+    end
+
+    local function findLobbyNumber(timeout)
+        return waitUntil(function()
+            local lobbyList = player.PlayerGui.NostalgiaEvent.Container.LobbyMenu.JoinSection.LobbyList
+            for _, child in ipairs(lobbyList:GetChildren()) do
+                local num = child.Name:match("^Lobby_(%d+)$")
+                if num then return tonumber(num) end
+            end
+            return nil
+        end, timeout, 1, "FindLobby")
+    end
+
+    -- Winner might not have finished CreateLobby yet (or take a while to
+    -- recreate it on later rounds) — scan forever instead of giving up, same
+    -- rationale as racenostalgia's findLobby().
+    local function joinLobbyBruteForce()
+        while true do
+            pcall(function() getLobbies() end)
+
+            local lobbyNumber = findLobbyNumber(10)
+            if lobbyNumber then
+                klog("Found lobby #" .. lobbyNumber .. ", joining...")
+                retry(function() joinLobbyRemote(lobbyNumber) end, 5, KonvoiConfig.RetryDelay, "JoinLobby")
+
+                if waitUntil(function() return getRandomRaceCar() ~= nil end, 5, 0.5, "car picker confirm") then
+                    klog("Confirmed in lobby (car picker populated)")
+                    return true
+                end
+                klog("JoinLobby(" .. lobbyNumber .. ") didn't seem to land, scanning again...")
+            else
+                klog("No lobby found yet (winner may not have created it yet), scanning again...")
+            end
+            task.wait(KonvoiConfig.RetryDelay)
+        end
+    end
+
+    local function resetLobby()
+        lobbyCreated = false
+    end
+
+    -- ── Ready (shared by winner + follower, never spammed) ──
+    local readyToggled = false
+    local function toggleReadyOnce()
+        if readyToggled then return true end
+        local ok = retry(function() toggleReadyRemote() end, 5, KonvoiConfig.RetryDelay, "ToggleReady")
+        if ok then readyToggled = true; klog("Ready toggled") end
+        return ok
+    end
+    local function resetReadyState()
+        readyToggled = false
+    end
+
+    -- ── Teleport / interact NPC ──
+    local function teleportToNpc()
+        local npc = waitUntil(function()
+            return Workspace.Event.Nostalgia.pisangone
+        end, 15, 0.5, "NPC lookup")
+        if not npc then klog("NPC pisangone not found"); return false end
+
+        local targetCFrame
+        if npc:IsA("BasePart") then
+            targetCFrame = npc.CFrame
+        else
+            local part = npc:IsA("Model") and (npc.PrimaryPart or npc:FindFirstChildWhichIsA("BasePart", true))
+            targetCFrame = part and part.CFrame
+        end
+        if not targetCFrame then klog("NPC has no usable position"); return false end
+
+        local character = player.Character or player.CharacterAdded:Wait()
+        local hrp = character:WaitForChild("HumanoidRootPart", 10)
+        if not hrp then klog("HumanoidRootPart not found"); return false end
+
+        hrp.CFrame = targetCFrame + Vector3.new(0, 3, 5)
+        task.wait(1)
+        klog("Teleported to NPC")
+        return true
+    end
+
+    local function findProximityPrompt(npc)
+        for _, descendant in ipairs(npc:GetDescendants()) do
+            if descendant:IsA("ProximityPrompt") then return descendant end
+        end
+        return nil
+    end
+
+    local function interactNpc()
+        local ok = retry(function()
+            local npc = Workspace.Event.Nostalgia.pisangone
+            local prompt = findProximityPrompt(npc)
+            if not prompt then error("ProximityPrompt not found under pisangone") end
+            fireproximityprompt(prompt)
+        end, 5, KonvoiConfig.RetryDelay, "InteractNPC")
+        if ok then klog("Interacted with NPC") end
+        return ok
+    end
+
+    -- ── Winner controller ──
+    -- StartRace is a no-op server-side until enough players are in and
+    -- ready, so just fire it periodically and watch for NostalgiaWaypoint
+    -- spawning in — that's what actually signals the convoy started.
+    local function spamStartRaceUntilStarted()
+        local elapsed, sinceLastFire, pollInterval = 0, 0, 0.5
+        while elapsed < KonvoiConfig.StartRaceLoopTimeout do
+            if sinceLastFire <= 0 then
+                pcall(function() startRaceRemote() end)
+                sinceLastFire = KonvoiConfig.StartRaceRetryInterval
+                klog(string.format("Fired StartRace... (%ds elapsed)", elapsed))
+            end
+            if Workspace:FindFirstChild("NostalgiaWaypoint") then
+                klog("Race started! (waypoint spawned)")
+                return true
+            end
+            task.wait(pollInterval)
+            elapsed = elapsed + pollInterval
+            sinceLastFire = sinceLastFire - pollInterval
+        end
+        klog("Race never started after " .. KonvoiConfig.StartRaceLoopTimeout .. "s of retrying")
+        return false
+    end
+
+    local function runWinner()
+        klog("Role: WINNER")
+        if not createLobby() then return false end
+        task.wait(KonvoiConfig.RetryDelay)
+        if not selectRandomCar() then return false end
+        if not toggleReadyOnce() then return false end
+        klog("Firing StartRace every " .. KonvoiConfig.StartRaceRetryInterval .. "s until the race actually begins...")
+        return spamStartRaceUntilStarted()
+    end
+
+    -- ── Follower controller ──
+    local function runFollower()
+        klog("Role: FOLLOWER")
+        joinLobbyBruteForce()
+        task.wait(KonvoiConfig.RetryDelay)
+        if not selectRandomCar() then return false end
+        if not toggleReadyOnce() then return false end
+        klog("Ready. Waiting for winner to start race...")
+        return true
+    end
+
+    -- ── Leave-list (backend-driven) ──
+    local function isDeviceInLeaveList(list, deviceId)
+        if type(list) ~= "table" then return false end
+        for _, id in ipairs(list) do
+            if id == deviceId then return true end
+        end
+        return false
+    end
+
+    -- Polls the backend's leave-list for this round and checks whether our
+    -- own device_id is in it. Defaults to STAY if the API never answers —
+    -- safer than leaving a round we weren't actually assigned to leave.
+    local function fetchIsLeaverThisRound()
+        for attempt = 1, KonvoiConfig.LeaveListRetries do
+            local data = getPS(player.Name)
+            if data and data.leave then
+                local isLeaver = isDeviceInLeaveList(data.leave, DeviceId)
+                klog("Leave-list round: " .. (isLeaver and "LEAVER" or "STAY"))
+                return isLeaver
+            end
+            klog("Leave-list belum didapat, retry (" .. attempt .. "/" .. KonvoiConfig.LeaveListRetries .. ")...")
+            task.wait(KonvoiConfig.RetryDelay)
+        end
+        klog("Gagal ambil leave-list, default ke STAY")
+        return false
+    end
+
+    -- ── Race start handler ──
+    local function closeResult()
+        local ok = retry(function()
+            player.PlayerGui.NostalgiaEvent.Container.Result.Visible = false
+        end, 5, KonvoiConfig.RetryDelay, "CloseResult")
+        if ok then klog("Result closed") end
+        return ok
+    end
+
+    local function leaveAndWait()
+        klog("Leaver: leaving lobby now so the stayers win...")
+        if not retry(function() leaveLobbyRemote() end, 5, KonvoiConfig.RetryDelay, "LeaveLobby") then return false end
+        klog("Left lobby, waiting " .. KonvoiConfig.RequeueSettleDelay .. "s before heading back to the NPC...")
+        task.wait(KonvoiConfig.RequeueSettleDelay)
+        return true
+    end
+
+    -- Result popup doesn't always show — either way, always head back to NPC.
+    local function waitAndCloseResult()
+        klog("Stay: checking for the Result popup (win confirmation)...")
+        if waitForResult(KonvoiConfig.ResultTimeout) then
+            closeResult()
+        else
+            klog("No Result popup this round, heading back to the NPC right away.")
+        end
+        return true
+    end
+
+    -- Only the Winner calls this, once per round, so the next round's
+    -- leave-list rotates. Backend rejects the call from non-winner slots.
+    local function advanceRotation()
+        local ok = retry(function()
+            local result = konvoiAdvance(player.Name)
+            if not result or not result.success then error("advance failed") end
+        end, 5, KonvoiConfig.RetryDelay, "KonvoiAdvance")
+        if ok then klog("Rotation advanced for next round")
+        else klog("Rotation advance failed — next round's leave-list may repeat") end
+        return ok
+    end
+
+    -- ── Points (Shop.TitleBar.PointsPill.Value only populates once the Shop
+    -- has fetched DriveShopData, and it doesn't refresh on its own — call
+    -- this once per round, plus at startup, opening the Shop just to pull
+    -- fresh data in then closing it again immediately). ──
+    local function fetchShopDataOnce()
+        local ok, err = pcall(function()
+            local Network = require(rp.Modules.Network)
+            local ShopModule = require(
+                player.PlayerGui:WaitForChild("NostalgiaEvent"):WaitForChild("Modules"):WaitForChild("DriveShopModule")
+            )
+            local data = Network:InvokeServer("DriveShopData")
+            if typeof(data) ~= "table" then error("DriveShopData gagal") end
+
+            local uiData = { Point = data.Points or 0 }
+            local owned = data.Owned or {}
+            for _, reward in ipairs(data.Rewards or {}) do
+                uiData[reward.dataKey] = owned[reward.dataKey] and 1 or 0
+            end
+            ShopModule.SetCatalog(data.Rewards)
+            ShopModule.UpdateData(uiData)
+            ShopModule.Open()
+        end)
+        if not ok then klog("fetchShopDataOnce failed: " .. tostring(err)) end
+        pcall(function() player.PlayerGui.NostalgiaEvent.Container.Shop.Visible = false end)
+    end
+    KonvoiBrain.fetchShopDataOnce = fetchShopDataOnce
+
+    -- ── State machine ──
+    local STATE = {
+        INIT = "INIT", TELEPORT_NPC = "TELEPORT_NPC", INTERACT_NPC = "INTERACT_NPC",
+        OPEN_MENU = "OPEN_MENU", ROLE_DETECTION = "ROLE_DETECTION",
+        WINNER_FLOW = "WINNER_FLOW", FOLLOWER_FLOW = "FOLLOWER_FLOW",
+        WAIT_RACE_START = "WAIT_RACE_START", DETERMINE_LEAVE = "DETERMINE_LEAVE",
+        HANDLE_RACE_START = "HANDLE_RACE_START", REQUEUE = "REQUEUE", FAILED = "FAILED",
+    }
+
+    function KonvoiBrain.run(isWinner, deviceId)
+        IsWinner = isWinner
+        DeviceId = deviceId
+        klog("Konvoi starting as " .. (IsWinner and "WINNER" or "FOLLOWER") .. ", device " .. tostring(deviceId) .. "...")
+        local state = STATE.INIT
+        local isLeaverThisRound = false
+
+        while true do
+            if state == STATE.INIT then
+                state = remoteInit() and STATE.TELEPORT_NPC or STATE.FAILED
+
+            elseif state == STATE.TELEPORT_NPC then
+                klog("Teleporting to NPC...")
+                state = teleportToNpc() and STATE.INTERACT_NPC or STATE.FAILED
+
+            elseif state == STATE.INTERACT_NPC then
+                klog("Interacting with NPC...")
+                state = interactNpc() and STATE.OPEN_MENU or STATE.FAILED
+
+            elseif state == STATE.OPEN_MENU then
+                klog("Opening konvoi menu...")
+                local opened = retry(function() getLobbies() end, 5, KonvoiConfig.RetryDelay, "OpenMenu")
+                state = (opened and waitForRaceGui(15)) and STATE.ROLE_DETECTION or STATE.FAILED
+
+            elseif state == STATE.ROLE_DETECTION then
+                state = IsWinner and STATE.WINNER_FLOW or STATE.FOLLOWER_FLOW
+
+            elseif state == STATE.WINNER_FLOW then
+                state = runWinner() and STATE.WAIT_RACE_START or STATE.FAILED
+
+            elseif state == STATE.FOLLOWER_FLOW then
+                state = runFollower() and STATE.WAIT_RACE_START or STATE.FAILED
+
+            elseif state == STATE.WAIT_RACE_START then
+                klog("Waiting for convoy to start (NostalgiaWaypoint to spawn)...")
+                state = waitForConvoiStart(KonvoiConfig.StartRaceLoopTimeout) and STATE.DETERMINE_LEAVE or STATE.FAILED
+
+            elseif state == STATE.DETERMINE_LEAVE then
+                isLeaverThisRound = fetchIsLeaverThisRound()
+                state = STATE.HANDLE_RACE_START
+
+            elseif state == STATE.HANDLE_RACE_START then
+                if isLeaverThisRound then
+                    state = leaveAndWait() and STATE.REQUEUE or STATE.FAILED
+                else
+                    state = waitAndCloseResult() and STATE.REQUEUE or STATE.FAILED
+                end
+
+            elseif state == STATE.REQUEUE then
+                klog("Looping back to the NPC for another round (role stays fixed)...")
+                fetchShopDataOnce() -- refresh the points HUD's value for this round
+                resetLobby()
+                resetReadyState()
+                if IsWinner then advanceRotation() end
+                state = STATE.TELEPORT_NPC
+
+            elseif state == STATE.FAILED then
+                klog("Konvoi failed. Reconnecting to recover...")
+                ReturnLobby()
+                break
+            end
+        end
+    end
+end
+
+local function startKonvoiEvent(isWinner, deviceId)
+    log("[KONVOI] Starting Konvoi for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER") .. " (" .. tostring(deviceId) .. ")")
+    serverLock()
+
+    -- Hapus phone / hub
+    safeSpawn(function()
+        pcall(function()
+            local robloxGui = CoreGui:WaitForChild("RobloxGui", 10)
+            local backpack  = robloxGui and robloxGui:WaitForChild("Backpack", 10)
+            local hotbar    = backpack  and backpack:WaitForChild("Hotbar", 10)
+            if hotbar then hotbar:Destroy() end
+        end)
+    end)
+
+    -- ── Overlay GUI ──
+    pcall(function()
+        if CoreGui:FindFirstChild("SamlongKonvoiUI") then CoreGui.SamlongKonvoiUI:Destroy() end
+    end)
+
+    local evGui = Instance.new("ScreenGui")
+    evGui.Name           = "SamlongKonvoiUI"
+    evGui.ResetOnSpawn   = false
+    evGui.DisplayOrder   = 9999
+    evGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    evGui.Parent         = CoreGui
+
+    local evFrame = Instance.new("Frame", evGui)
+    evFrame.Size             = UDim2.new(0, 480, 0, 220)
+    evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
+    evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
+    evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
+    evFrame.BackgroundTransparency = 0.15
+    evFrame.BorderSizePixel  = 0
+    Instance.new("UICorner", evFrame).CornerRadius = UDim.new(0, 18)
+
+    local stroke = Instance.new("UIStroke", evFrame)
+    stroke.Color     = Color3.fromRGB(180, 100, 255)
+    stroke.Thickness = 2.5
+
+    local evName = Instance.new("TextLabel", evFrame)
+    evName.Size                   = UDim2.new(1, -24, 0, 70)
+    evName.Position               = UDim2.new(0, 12, 0, 16)
+    evName.BackgroundTransparency = 1
+    evName.Font                   = Enum.Font.GothamBlack
+    evName.TextScaled             = true
+    evName.TextColor3             = Color3.fromRGB(255, 220, 60)
+    evName.TextStrokeTransparency = 0.4
+    evName.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evName.TextXAlignment         = Enum.TextXAlignment.Center
+    evName.Text                   = player.Name .. (isWinner and " (WINNER)" or " (FOLLOWER)") .. " · " .. tostring(deviceId)
+
+    local evPoints = Instance.new("TextLabel", evFrame)
+    evPoints.Size                   = UDim2.new(1, -24, 0, 110)
+    evPoints.Position               = UDim2.new(0, 12, 0, 92)
+    evPoints.BackgroundTransparency = 1
+    evPoints.Font                   = Enum.Font.GothamBlack
+    evPoints.TextScaled             = true
+    evPoints.TextColor3             = Color3.new(1, 1, 1)
+    evPoints.TextStrokeTransparency = 0.4
+    evPoints.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evPoints.TextXAlignment         = Enum.TextXAlignment.Center
+    evPoints.Text                   = "... PTS"
+
+    -- ── Fetch jumlah point ke web (sama seperti mode event lain) ──
+    safeSpawn(function()
+        local function parsePoints(txt)
+            local digits = (tostring(txt or ""):gsub("%D", ""))
+            if digits == "" then digits = "0" end
+            return digits
+        end
+
+        KonvoiBrain.fetchShopDataOnce() -- populate PointsPill.Value for the first time
+
+        local valLabel = nil
+        for _ = 1, 30 do
+            local ok, lbl = pcall(function()
+                return player.PlayerGui.NostalgiaEvent.Container.Shop.TitleBar.PointsPill.Value
+            end)
+            if ok and lbl then valLabel = lbl; break end
+            task.wait(1)
+        end
+        if not valLabel then log("[KONVOI] PointsPill Value tidak ditemukan setelah 30s"); return end
+
+        local latestPts     = 0
+        local lastValChange = os.time()
+
+        local function onValueChanged()
+            local v = tonumber(parsePoints(valLabel.Text)) or 0
+            if v > 0 and v ~= latestPts then
+                latestPts     = v
+                lastValChange = os.time()
+                evPoints.Text = tostring(v) .. " PTS"
+                sendUpdate(tostring(v))
+                safeApiUpdate(player.Name, v)
+                log("[KONVOI] Poin update: " .. tostring(v))
+            end
+        end
+
+        valLabel:GetPropertyChangedSignal("Text"):Connect(onValueChanged)
+
+        local initPts = tonumber(parsePoints(valLabel.Text)) or 0
+        latestPts     = initPts
+        lastValChange = os.time()
+        evPoints.Text = tostring(latestPts) .. " PTS"
+        log("[KONVOI] Poin awal: " .. tostring(initPts))
+        sendInit(tostring(initPts))
+        apiUpdate(player.Name, initPts)
+
+        -- Stuck detector: poin ga naik 10 menit → auto reconnect
+        safeSpawn(function()
+            local STUCK_THRESHOLD = 600
+            while true do
+                task.wait(60)
+                local elapsed = os.difftime(os.time(), lastValChange)
+                if elapsed >= STUCK_THRESHOLD then
+                    log("[KONVOI] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastValChange = os.time()
+                    ReturnLobby()
+                end
+            end
+        end)
+
+        while true do
+            task.wait(60)
+            local cur = tonumber(parsePoints(valLabel.Text)) or 0
+            if cur > 0 and cur ~= latestPts then
+                latestPts     = cur
+                lastValChange = os.time()
+                log("[KONVOI] Poin poll: " .. tostring(cur))
+            end
+            evPoints.Text = tostring(latestPts) .. " PTS"
+            sendUpdate(tostring(latestPts))
+            safeApiUpdate(player.Name, latestPts)
+        end
+    end)
+
+    -- ── Konvoi state machine ──
+    safeSpawn(function()
+        KonvoiBrain.run(isWinner, deviceId)
+    end)
+end
+
+-- ═══════════════════════════════════
 --  MODE: DDS
 -- ═══════════════════════════════════
 local function startDDS()
@@ -1556,6 +2159,12 @@ local function resolveMode(data)
         -- nojump = winner (create+start lobby), jump = follower (join lobby)
         if jumpMode == "jump" then return "event_follower"
         else                       return "event_winner" end
+
+    elseif jenis == "konvoi" then
+        -- Same winner/follower convention as "event"; who LeaveLobby's each
+        -- round comes from the API's `leave` list instead, not jump_mode.
+        if jumpMode == "jump" then return "konvoi_follower"
+        else                       return "konvoi_winner" end
     end
 
     return nil
@@ -1780,6 +2389,12 @@ local function onIngame()
 
         elseif mode == "event_follower" then
             startEvent(false)
+
+        elseif mode == "konvoi_winner" then
+            startKonvoiEvent(true, data.device_id)
+
+        elseif mode == "konvoi_follower" then
+            startKonvoiEvent(false, data.device_id)
         end
     end)
 end
