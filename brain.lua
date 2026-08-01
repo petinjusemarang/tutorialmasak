@@ -1801,9 +1801,17 @@ do
         return ok
     end
 
+    -- FireServer never reports back whether the server actually received/
+    -- processed it — a single shot has zero protection against a dropped
+    -- event (e.g. mid-race while the vehicle is moving fast). Fire it a few
+    -- times spaced out instead of trusting one attempt.
     local function leaveAndWait()
         klog("Leaver: leaving lobby now so the stayers win...")
-        if not retry(function() leaveLobbyRemote() end, 5, KonvoiConfig.RetryDelay, "LeaveLobby") then return false end
+        for i = 1, 3 do
+            pcall(function() leaveLobbyRemote() end)
+            klog("LeaveLobby fired (" .. i .. "/3)")
+            task.wait(0.75)
+        end
         klog("Left lobby, waiting " .. KonvoiConfig.RequeueSettleDelay .. "s before heading back to the NPC...")
         task.wait(KonvoiConfig.RequeueSettleDelay)
         return true
