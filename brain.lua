@@ -1376,7 +1376,6 @@ end
 
 local function startEvent(isWinner)
     log("[EVENT] Starting Race Nostalgia for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER"))
-    serverLock()
 
     -- Hapus phone / hub
     safeSpawn(function()
@@ -2303,10 +2302,10 @@ local function onLobby()
 
         if not serverCode then return end
 
-        -- Region berdasarkan jenis
+        -- Region berdasarkan jenis (Konvoi pakai map yang sama dengan Event biasa)
         local jenisFix = (data and data.jenis or ""):lower()
         local joinRegion
-        if jenisFix == "event" then
+        if jenisFix == "event" or jenisFix == "konvoi" then
             joinRegion = "Seasonal"
         elseif jenisFix == "minigame" then
             joinRegion = "Jakarta"
