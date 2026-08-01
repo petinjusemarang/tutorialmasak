@@ -387,8 +387,22 @@ local function ReturnLobby()
 
     if success then
         log("[LOBBY] Returning to lobby...")
-    else
-        log("[LOBBY] ReturnLobby failed: " .. tostring(err))
+        return
+    end
+
+    -- The GUI button path doesn't always exist (e.g. Settings menu never got
+    -- opened this session), and this used to just give up here — leaving the
+    -- whole automation permanently dead with nothing left to notice or
+    -- recover. Force a same-place re-teleport instead, which doesn't depend
+    -- on any GUI existing: it always disconnects+reconnects, and
+    -- queueOnTeleport(AUTOEXEC) makes brain.lua run fresh again once loaded.
+    log("[LOBBY] ReturnLobby GUI button failed (" .. tostring(err) .. "), falling back to hard teleport...")
+    local teleOk, teleErr = pcall(function()
+        queueOnTeleport(AUTOEXEC)
+        game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+    end)
+    if not teleOk then
+        log("[LOBBY] Hard teleport fallback also failed: " .. tostring(teleErr))
     end
 end
 
