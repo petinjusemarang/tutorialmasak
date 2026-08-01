@@ -346,6 +346,23 @@ local function getKonvoiTeamPoints(username)
     end
 end
 
+-- POST /api/konvoi-restart { username } — broadcasts a group-wide restart
+-- signal. Called by whichever device first notices the group's total points
+-- have stalled, so the other 3 devices reconnect together on their next
+-- team-points poll instead of drifting further out of sync.
+local function konvoiRestart(username)
+    local res = req({
+        Url     = API_URL .. "/api/konvoi-restart",
+        Method  = "POST",
+        Headers = { ["Content-Type"] = "application/json", ["x-api-key"] = API_KEY },
+        Body    = HttpService:JSONEncode({ username = username }),
+    })
+    if res and res.StatusCode == 200 then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok then return data end
+    end
+end
+
 
 -- ═══════════════════════════════════
 --  ANTI-AFK (global, sekali)
@@ -2111,11 +2128,20 @@ local function startKonvoiEvent(isWinner, deviceId)
         apiUpdate(player.Name, initPts)
 
         -- Stuck detector: TOTAL poin 1 tim (bukan poin akun sendiri) ga naik
-        -- 10 menit → auto reconnect. Device Leaver by design gak pernah dapet
-        -- poin sendiri (yang dapet cuma yang Stay tiap ronde), jadi ngecek
-        -- poin sendiri bakal salah nganggep Leaver "stuck" padahal jalan
-        -- normal. Total tim tetap naik selama ada Stay player yang beres
-        -- tiap ronde, jadi ini sinyal yang bener buat semua role.
+        -- 10 menit → broadcast restart ke seluruh grup lalu reconnect.
+        -- Device Leaver by design gak pernah dapet poin sendiri (yang dapet
+        -- cuma yang Stay tiap ronde), jadi ngecek poin sendiri bakal salah
+        -- nganggep Leaver "stuck" padahal jalan normal. Total tim tetap naik
+        -- selama ada Stay player yang beres tiap ronde, jadi ini sinyal yang
+        -- bener buat semua role.
+        --
+        -- Kalau CUMA device ini yang reconnect sendirian, dia bikin/join
+        -- lobby baru sementara 3 device lain masih nunggu di lobby LAMA yang
+        -- udah ditinggal — malah bikin stuck baru. Makanya begitu device ini
+        -- broadcast restart, 3 device lain ikut reconnect di polling
+        -- berikutnya (dalam ~60 detik) walau timer stuck mereka sendiri
+        -- belum habis, biar seluruh grup restart bareng.
+        local konvoiSessionStart = os.time()
         safeSpawn(function()
             local STUCK_THRESHOLD = 600
             local lastTeamTotal  = nil
@@ -2123,15 +2149,23 @@ local function startKonvoiEvent(isWinner, deviceId)
             while true do
                 task.wait(60)
                 local teamData = getKonvoiTeamPoints(player.Name)
-                if teamData and teamData.total then
-                    if lastTeamTotal == nil or teamData.total ~= lastTeamTotal then
-                        lastTeamTotal  = teamData.total
-                        lastTeamChange = os.time()
+                if teamData then
+                    if teamData.total then
+                        if lastTeamTotal == nil or teamData.total ~= lastTeamTotal then
+                            lastTeamTotal  = teamData.total
+                            lastTeamChange = os.time()
+                        end
+                    end
+                    if teamData.restart_requested_at and teamData.restart_requested_at > konvoiSessionStart then
+                        log("[KONVOI] Sinyal restart grup diterima — reconnect bareng...")
+                        ReturnLobby()
+                        return
                     end
                 end
                 local elapsed = os.difftime(os.time(), lastTeamChange)
                 if elapsed >= STUCK_THRESHOLD then
-                    log("[KONVOI] Total poin tim gak naik " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    log("[KONVOI] Total poin tim gak naik " .. math.floor(elapsed / 60) .. "m — broadcast restart ke grup...")
+                    konvoiRestart(player.Name)
                     lastTeamChange = os.time()
                     ReturnLobby()
                 end
