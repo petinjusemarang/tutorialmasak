@@ -1511,6 +1511,10 @@ do
     local IsWinner = true
     local DeviceId = nil
 
+    -- Optional UI hook: set by startKonvoiEvent so the overlay can show
+    -- LEAVER/STAY as soon as each round's decision comes back.
+    KonvoiBrain.onLeaveStatus = nil
+
     local function klog(msg) log("[KONVOI] " .. tostring(msg)) end
 
     local function retry(fn, attempts, delay, label)
@@ -1915,6 +1919,9 @@ do
 
             elseif state == STATE.DETERMINE_LEAVE then
                 isLeaverThisRound = fetchIsLeaverThisRound()
+                if KonvoiBrain.onLeaveStatus then
+                    pcall(KonvoiBrain.onLeaveStatus, isLeaverThisRound)
+                end
                 state = STATE.HANDLE_RACE_START
 
             elseif state == STATE.HANDLE_RACE_START then
@@ -1967,7 +1974,7 @@ local function startKonvoiEvent(isWinner, deviceId)
     evGui.Parent         = CoreGui
 
     local evFrame = Instance.new("Frame", evGui)
-    evFrame.Size             = UDim2.new(0, 480, 0, 220)
+    evFrame.Size             = UDim2.new(0, 480, 0, 250)
     evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
     evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
     evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
@@ -1980,8 +1987,8 @@ local function startKonvoiEvent(isWinner, deviceId)
     stroke.Thickness = 2.5
 
     local evName = Instance.new("TextLabel", evFrame)
-    evName.Size                   = UDim2.new(1, -24, 0, 70)
-    evName.Position               = UDim2.new(0, 12, 0, 16)
+    evName.Size                   = UDim2.new(1, -24, 0, 50)
+    evName.Position               = UDim2.new(0, 12, 0, 12)
     evName.BackgroundTransparency = 1
     evName.Font                   = Enum.Font.GothamBlack
     evName.TextScaled             = true
@@ -1991,9 +1998,22 @@ local function startKonvoiEvent(isWinner, deviceId)
     evName.TextXAlignment         = Enum.TextXAlignment.Center
     evName.Text                   = player.Name .. (isWinner and " (WINNER)" or " (FOLLOWER)") .. " · " .. tostring(deviceId)
 
+    -- Leaver/Stay this round — updated live by KonvoiBrain.onLeaveStatus below.
+    local evStatus = Instance.new("TextLabel", evFrame)
+    evStatus.Size                   = UDim2.new(1, -24, 0, 36)
+    evStatus.Position               = UDim2.new(0, 12, 0, 66)
+    evStatus.BackgroundTransparency = 1
+    evStatus.Font                   = Enum.Font.GothamBold
+    evStatus.TextScaled             = true
+    evStatus.TextColor3             = Color3.fromRGB(180, 180, 190)
+    evStatus.TextStrokeTransparency = 0.5
+    evStatus.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evStatus.TextXAlignment         = Enum.TextXAlignment.Center
+    evStatus.Text                   = "MENUNGGU RONDE..."
+
     local evPoints = Instance.new("TextLabel", evFrame)
-    evPoints.Size                   = UDim2.new(1, -24, 0, 110)
-    evPoints.Position               = UDim2.new(0, 12, 0, 92)
+    evPoints.Size                   = UDim2.new(1, -24, 0, 120)
+    evPoints.Position               = UDim2.new(0, 12, 0, 106)
     evPoints.BackgroundTransparency = 1
     evPoints.Font                   = Enum.Font.GothamBlack
     evPoints.TextScaled             = true
@@ -2002,6 +2022,18 @@ local function startKonvoiEvent(isWinner, deviceId)
     evPoints.TextStrokeColor3       = Color3.new(0, 0, 0)
     evPoints.TextXAlignment         = Enum.TextXAlignment.Center
     evPoints.Text                   = "... PTS"
+
+    -- Konvoi state machine reports LEAVER/STAY back here as soon as each
+    -- round's decision comes back from the backend.
+    KonvoiBrain.onLeaveStatus = function(isLeaver)
+        if isLeaver then
+            evStatus.Text       = "🚪 LEAVER — akan LeaveLobby"
+            evStatus.TextColor3 = Color3.fromRGB(255, 110, 90)
+        else
+            evStatus.Text       = "🏁 STAY — tunggu menang"
+            evStatus.TextColor3 = Color3.fromRGB(90, 220, 140)
+        end
+    end
 
     -- ── Fetch jumlah point ke web (sama seperti mode event lain) ──
     safeSpawn(function()
