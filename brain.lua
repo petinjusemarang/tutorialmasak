@@ -315,25 +315,10 @@ local function serverLock()
     end)
 end
 
--- POST /api/konvoi-advance  { username } → bumps the group's rotation counter.
--- Only the Winner device calls this (backend rejects it from anyone else),
--- once per round, so the next round's leave-list rotates fairly.
-local function konvoiAdvance(username)
-    local res = req({
-        Url     = API_URL .. "/api/konvoi-advance",
-        Method  = "POST",
-        Headers = { ["Content-Type"] = "application/json", ["x-api-key"] = API_KEY },
-        Body    = HttpService:JSONEncode({ username = username }),
-    })
-    if res and res.StatusCode == 200 then
-        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
-        if ok then return data end
-    end
-end
-
--- GET /api/konvoi-team-points?username=xxx → { total } summed across the
--- whole Konvoi group. Used instead of this device's own points for the
--- stuck/reconnect check — a Leaver's own points legitimately never move.
+-- GET /api/konvoi-team-points?username=xxx → { total, restart_requested_at }.
+-- Konvoi's Winner always stays and Followers always leave every round, so a
+-- Follower's own points legitimately never move — watching the GROUP's total
+-- instead is what the stuck/reconnect check (and group-restart signal) uses.
 local function getKonvoiTeamPoints(username)
     local res = req({
         Url     = API_URL .. "/api/konvoi-team-points?username=" .. HttpService:UrlEncode(username),
@@ -349,7 +334,9 @@ end
 -- POST /api/konvoi-restart { username } — broadcasts a group-wide restart
 -- signal. Called by whichever device first notices the group's total points
 -- have stalled, so the other 3 devices reconnect together on their next
--- team-points poll instead of drifting further out of sync.
+-- team-points poll instead of drifting further out of sync (one device
+-- reconnecting alone recreates/abandons a lobby the other 3 are still
+-- waiting on).
 local function konvoiRestart(username)
     local res = req({
         Url     = API_URL .. "/api/konvoi-restart",
@@ -391,10 +378,10 @@ local function ReturnLobby()
     end
 
     -- The GUI button path doesn't always exist (e.g. Settings menu never got
-    -- opened this session), and this used to just give up here — leaving the
-    -- whole automation permanently dead with nothing left to notice or
-    -- recover. Force a same-place re-teleport instead, which doesn't depend
-    -- on any GUI existing: it always disconnects+reconnects, and
+    -- opened this session) — used to just give up here, leaving the whole
+    -- automation permanently dead with nothing left to notice or recover.
+    -- Force a same-place re-teleport instead, which doesn't depend on any
+    -- GUI existing: it always disconnects+reconnects, and
     -- queueOnTeleport(AUTOEXEC) makes brain.lua run fresh again once loaded.
     log("[LOBBY] ReturnLobby GUI button failed (" .. tostring(err) .. "), falling back to hard teleport...")
     local teleOk, teleErr = pcall(function()
@@ -1389,6 +1376,7 @@ end
 
 local function startEvent(isWinner)
     log("[EVENT] Starting Race Nostalgia for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER"))
+    serverLock()
 
     -- Hapus phone / hub
     safeSpawn(function()
@@ -1536,11 +1524,14 @@ end
 
 -- ═══════════════════════════════════
 --  MODE: EVENT KONVOI
---  Adaptasi dari convoi.lua (KonvoiBrain V1), tapi Winner/Follower dan siapa
---  yang LeaveLobby TIDAK lagi dipilih manual lewat GUI toggle — semuanya
---  datang dari API (jump_mode untuk role, `leave` list untuk giliran leave).
---  4 device masuk 1 lobby; setelah race mulai, backend nentuin 2 dari 4 yang
---  LeaveLobby (prioritas Dummy, lalu rotasi) supaya 2 sisanya selesai & score.
+--  4 device masuk 1 lobby. Winner (dari jump_mode, fixed sepanjang sesi)
+--  SELALU Stay; ketiga Follower SELALU Leave tiap ronde (jeda random 1-2
+--  detik per device biar gak nembak LeaveLobby barengan persis). Popup hasil
+--  race dipaksa non-visible aja tanpa ditunggu/dikonfirmasi — kesehatan
+--  sistem cukup diverifikasi lewat stuck-detector total poin tim.
+--  Gak ada leave-list per-ronde dari backend — role Winner/Follower udah
+--  cukup nentuin siapa Stay/Leave, jadi cuma 1x fetch job di awal sesi,
+--  sama persis kayak pola Winner/Follower event biasa.
 -- ═══════════════════════════════════
 local KonvoiBrain = {}
 do
@@ -1550,20 +1541,12 @@ do
         RetryDelay             = 1,
         StartRaceRetryInterval = 5,   -- winner refires StartRace tiap N detik (konvoi cuma butuh 4 player, bukan 5)
         StartRaceLoopTimeout   = 300,
-        ResultTimeout          = 30,  -- lama Stay-pick cek popup Result sebelum nyerah nunggu dan tetap lanjut
-        RequeueSettleDelay     = 3,
-        LeaveListRetries       = 10,  -- percobaan poll leave-list sebelum default ke STAY
+        RequeueSettleDelay     = 3,   -- jeda abis Leave sebelum balik ke NPC
+        LeaveJitterMin         = 1,   -- Follower nunggu random segini (detik) sebelum LeaveLobby
+        LeaveJitterMax         = 2,
+        WinnerStayDelay        = 10,  -- Winner nunggu segini abis race mulai sebelum requeue (kasih waktu Follower leave + server proses)
     }
     local IsWinner = true
-    local DeviceId = nil
-
-    -- Optional UI hooks: set by startKonvoiEvent so the overlay can show
-    -- LEAVER/STAY as soon as each round's decision comes back, and get reset
-    -- back to neutral when a fresh round starts (otherwise it keeps showing
-    -- last round's result while this round hasn't been decided yet, which
-    -- reads as "leaver isn't actually leaving" when it's just a stale label).
-    KonvoiBrain.onLeaveStatus = nil
-    KonvoiBrain.onRoundReset  = nil
 
     local function klog(msg) log("[KONVOI] " .. tostring(msg)) end
 
@@ -1663,12 +1646,6 @@ do
         end, timeout, 0.5, "NostalgiaWaypoint spawn")
     end
 
-    local function waitForResult(timeout)
-        return waitUntil(function()
-            return player.PlayerGui.NostalgiaEvent.Container.Result.Visible
-        end, timeout, 0.5, "Result visible")
-    end
-
     -- ── Lobby manager ──
     local lobbyCreated = false
     local function createLobby()
@@ -1691,8 +1668,7 @@ do
     end
 
     -- Winner might not have finished CreateLobby yet (or take a while to
-    -- recreate it on later rounds) — scan forever instead of giving up, same
-    -- rationale as racenostalgia's findLobby().
+    -- recreate it on later rounds) — scan forever instead of giving up.
     local function joinLobbyBruteForce()
         while true do
             pcall(function() getLobbies() end)
@@ -1799,7 +1775,7 @@ do
     end
 
     local function runWinner()
-        klog("Role: WINNER")
+        klog("Role: WINNER (Stay)")
         if not createLobby() then return false end
         task.wait(KonvoiConfig.RetryDelay)
         if not selectRandomCar() then return false end
@@ -1810,7 +1786,7 @@ do
 
     -- ── Follower controller ──
     local function runFollower()
-        klog("Role: FOLLOWER")
+        klog("Role: FOLLOWER (Leave)")
         joinLobbyBruteForce()
         task.wait(KonvoiConfig.RetryDelay)
         if not selectRandomCar() then return false end
@@ -1819,79 +1795,36 @@ do
         return true
     end
 
-    -- ── Leave-list (backend-driven) ──
-    local function isDeviceInLeaveList(list, deviceId)
-        if type(list) ~= "table" then return false end
-        for _, id in ipairs(list) do
-            if id == deviceId then return true end
-        end
-        return false
-    end
-
-    -- Polls the backend's leave-list for this round and checks whether our
-    -- own device_id is in it. Defaults to STAY if the API never answers —
-    -- safer than leaving a round we weren't actually assigned to leave.
-    local function fetchIsLeaverThisRound()
-        for attempt = 1, KonvoiConfig.LeaveListRetries do
-            local data = getPS(player.Name)
-            if data and data.leave then
-                local isLeaver = isDeviceInLeaveList(data.leave, DeviceId)
-                klog("Leave-list round: " .. (isLeaver and "LEAVER" or "STAY"))
-                return isLeaver
-            end
-            klog("Leave-list belum didapat, retry (" .. attempt .. "/" .. KonvoiConfig.LeaveListRetries .. ")...")
-            task.wait(KonvoiConfig.RetryDelay)
-        end
-        klog("Gagal ambil leave-list, default ke STAY")
-        return false
-    end
-
     -- ── Race start handler ──
-    local function closeResult()
-        local ok = retry(function()
+    -- Winner: stays put, waits long enough for all 3 Followers to jitter +
+    -- LeaveLobby + settle, then force-hides whatever "win" popup shows
+    -- (never waited on/verified — that's what the stuck-detector on total
+    -- team points is for) and moves straight to requeue.
+    local function winnerStayAndResolve()
+        klog("Winner staying — waiting " .. KonvoiConfig.WinnerStayDelay .. "s for followers to leave and race to resolve...")
+        task.wait(KonvoiConfig.WinnerStayDelay)
+        pcall(function()
             player.PlayerGui.NostalgiaEvent.Container.Result.Visible = false
-        end, 5, KonvoiConfig.RetryDelay, "CloseResult")
-        if ok then klog("Result closed") end
-        return ok
+        end)
+        return true
     end
 
-    -- FireServer never reports back whether the server actually received/
-    -- processed it — a single shot has zero protection against a dropped
-    -- event (e.g. mid-race while the vehicle is moving fast). Fire it a few
-    -- times spaced out instead of trusting one attempt.
-    local function leaveAndWait()
-        klog("Leaver: leaving lobby now so the stayers win...")
+    -- Follower: random 1-2s jitter (so all 3 don't fire in the exact same
+    -- instant), then LeaveLobby 3x spaced out — FireServer gives no delivery
+    -- confirmation, so a single shot has no protection against a dropped
+    -- event (e.g. mid-race while the vehicle is moving fast).
+    local function followerLeaveWithJitter()
+        local jitter = KonvoiConfig.LeaveJitterMin + math.random() * (KonvoiConfig.LeaveJitterMax - KonvoiConfig.LeaveJitterMin)
+        klog(string.format("Follower leaving in %.1fs...", jitter))
+        task.wait(jitter)
+        klog("Leaving lobby now...")
         for i = 1, 3 do
             pcall(function() leaveLobbyRemote() end)
             klog("LeaveLobby fired (" .. i .. "/3)")
             task.wait(0.75)
         end
-        klog("Left lobby, waiting " .. KonvoiConfig.RequeueSettleDelay .. "s before heading back to the NPC...")
         task.wait(KonvoiConfig.RequeueSettleDelay)
         return true
-    end
-
-    -- Result popup doesn't always show — either way, always head back to NPC.
-    local function waitAndCloseResult()
-        klog("Stay: checking for the Result popup (win confirmation)...")
-        if waitForResult(KonvoiConfig.ResultTimeout) then
-            closeResult()
-        else
-            klog("No Result popup this round, heading back to the NPC right away.")
-        end
-        return true
-    end
-
-    -- Only the Winner calls this, once per round, so the next round's
-    -- leave-list rotates. Backend rejects the call from non-winner slots.
-    local function advanceRotation()
-        local ok = retry(function()
-            local result = konvoiAdvance(player.Name)
-            if not result or not result.success then error("advance failed") end
-        end, 5, KonvoiConfig.RetryDelay, "KonvoiAdvance")
-        if ok then klog("Rotation advanced for next round")
-        else klog("Rotation advance failed — next round's leave-list may repeat") end
-        return ok
     end
 
     -- ── Points (Shop.TitleBar.PointsPill.Value only populates once the Shop
@@ -1926,20 +1859,17 @@ do
         INIT = "INIT", TELEPORT_NPC = "TELEPORT_NPC", INTERACT_NPC = "INTERACT_NPC",
         OPEN_MENU = "OPEN_MENU", ROLE_DETECTION = "ROLE_DETECTION",
         WINNER_FLOW = "WINNER_FLOW", FOLLOWER_FLOW = "FOLLOWER_FLOW",
-        WAIT_RACE_START = "WAIT_RACE_START", DETERMINE_LEAVE = "DETERMINE_LEAVE",
+        WAIT_RACE_START = "WAIT_RACE_START",
         HANDLE_RACE_START = "HANDLE_RACE_START", REQUEUE = "REQUEUE", FAILED = "FAILED",
     }
 
     function KonvoiBrain.run(isWinner, deviceId)
         IsWinner = isWinner
-        DeviceId = deviceId
-        klog("Konvoi starting as " .. (IsWinner and "WINNER" or "FOLLOWER") .. ", device " .. tostring(deviceId) .. "...")
+        klog("Konvoi starting as " .. (IsWinner and "WINNER (Stay)" or "FOLLOWER (Leave)") .. ", device " .. tostring(deviceId) .. "...")
         local state = STATE.INIT
-        local isLeaverThisRound = false
 
         while true do
             if state == STATE.INIT then
-                if KonvoiBrain.onRoundReset then pcall(KonvoiBrain.onRoundReset) end
                 state = remoteInit() and STATE.TELEPORT_NPC or STATE.FAILED
 
             elseif state == STATE.TELEPORT_NPC then
@@ -1953,18 +1883,7 @@ do
             elseif state == STATE.OPEN_MENU then
                 klog("Opening konvoi menu...")
                 local opened = retry(function() getLobbies() end, 5, KonvoiConfig.RetryDelay, "OpenMenu")
-                state = (opened and waitForRaceGui(15)) and STATE.DETERMINE_LEAVE or STATE.FAILED
-
-            elseif state == STATE.DETERMINE_LEAVE then
-                -- Decided here (before joining/readying) instead of after the
-                -- race starts — by the time NostalgiaWaypoint actually spawns,
-                -- this round's decision is already known, so HANDLE_RACE_START
-                -- can act immediately instead of waiting on a live fetch mid-race.
-                isLeaverThisRound = fetchIsLeaverThisRound()
-                if KonvoiBrain.onLeaveStatus then
-                    pcall(KonvoiBrain.onLeaveStatus, isLeaverThisRound)
-                end
-                state = STATE.ROLE_DETECTION
+                state = (opened and waitForRaceGui(15)) and STATE.ROLE_DETECTION or STATE.FAILED
 
             elseif state == STATE.ROLE_DETECTION then
                 state = IsWinner and STATE.WINNER_FLOW or STATE.FOLLOWER_FLOW
@@ -1980,19 +1899,17 @@ do
                 state = waitForConvoiStart(KonvoiConfig.StartRaceLoopTimeout) and STATE.HANDLE_RACE_START or STATE.FAILED
 
             elseif state == STATE.HANDLE_RACE_START then
-                if isLeaverThisRound then
-                    state = leaveAndWait() and STATE.REQUEUE or STATE.FAILED
+                if IsWinner then
+                    state = winnerStayAndResolve() and STATE.REQUEUE or STATE.FAILED
                 else
-                    state = waitAndCloseResult() and STATE.REQUEUE or STATE.FAILED
+                    state = followerLeaveWithJitter() and STATE.REQUEUE or STATE.FAILED
                 end
 
             elseif state == STATE.REQUEUE then
                 klog("Looping back to the NPC for another round (role stays fixed)...")
-                if KonvoiBrain.onRoundReset then pcall(KonvoiBrain.onRoundReset) end
                 fetchShopDataOnce() -- refresh the points HUD's value for this round
                 resetLobby()
                 resetReadyState()
-                if IsWinner then advanceRotation() end
                 state = STATE.TELEPORT_NPC
 
             elseif state == STATE.FAILED then
@@ -2054,18 +1971,24 @@ local function startKonvoiEvent(isWinner, deviceId)
     evName.TextXAlignment         = Enum.TextXAlignment.Center
     evName.Text                   = player.Name .. (isWinner and " (WINNER)" or " (FOLLOWER)") .. " · " .. tostring(deviceId)
 
-    -- Leaver/Stay this round — updated live by KonvoiBrain.onLeaveStatus below.
+    -- Role is fixed for the whole session (Winner always Stay, Follower
+    -- always Leave), so this is set once — no per-round updates needed.
     local evStatus = Instance.new("TextLabel", evFrame)
     evStatus.Size                   = UDim2.new(1, -24, 0, 36)
     evStatus.Position               = UDim2.new(0, 12, 0, 66)
     evStatus.BackgroundTransparency = 1
     evStatus.Font                   = Enum.Font.GothamBold
     evStatus.TextScaled             = true
-    evStatus.TextColor3             = Color3.fromRGB(180, 180, 190)
     evStatus.TextStrokeTransparency = 0.5
     evStatus.TextStrokeColor3       = Color3.new(0, 0, 0)
     evStatus.TextXAlignment         = Enum.TextXAlignment.Center
-    evStatus.Text                   = "MENUNGGU RONDE..."
+    if isWinner then
+        evStatus.Text       = "🏁 STAY tiap ronde"
+        evStatus.TextColor3 = Color3.fromRGB(90, 220, 140)
+    else
+        evStatus.Text       = "🚪 LEAVE tiap ronde"
+        evStatus.TextColor3 = Color3.fromRGB(255, 110, 90)
+    end
 
     local evPoints = Instance.new("TextLabel", evFrame)
     evPoints.Size                   = UDim2.new(1, -24, 0, 120)
@@ -2078,26 +2001,6 @@ local function startKonvoiEvent(isWinner, deviceId)
     evPoints.TextStrokeColor3       = Color3.new(0, 0, 0)
     evPoints.TextXAlignment         = Enum.TextXAlignment.Center
     evPoints.Text                   = "... PTS"
-
-    -- Konvoi state machine reports LEAVER/STAY back here as soon as each
-    -- round's decision comes back from the backend.
-    KonvoiBrain.onLeaveStatus = function(isLeaver)
-        if isLeaver then
-            evStatus.Text       = "🚪 LEAVER — akan LeaveLobby"
-            evStatus.TextColor3 = Color3.fromRGB(255, 110, 90)
-        else
-            evStatus.Text       = "🏁 STAY — tunggu menang"
-            evStatus.TextColor3 = Color3.fromRGB(90, 220, 140)
-        end
-    end
-
-    -- Called at the start of every fresh round (INIT + REQUEUE) so the label
-    -- doesn't keep showing last round's LEAVER/STAY result while this
-    -- round's decision hasn't come back yet.
-    KonvoiBrain.onRoundReset = function()
-        evStatus.Text       = "MENUNGGU RONDE..."
-        evStatus.TextColor3 = Color3.fromRGB(180, 180, 190)
-    end
 
     -- ── Fetch jumlah point ke web (sama seperti mode event lain) ──
     safeSpawn(function()
@@ -2142,19 +2045,9 @@ local function startKonvoiEvent(isWinner, deviceId)
         apiUpdate(player.Name, initPts)
 
         -- Stuck detector: TOTAL poin 1 tim (bukan poin akun sendiri) ga naik
-        -- 10 menit → broadcast restart ke seluruh grup lalu reconnect.
-        -- Device Leaver by design gak pernah dapet poin sendiri (yang dapet
-        -- cuma yang Stay tiap ronde), jadi ngecek poin sendiri bakal salah
-        -- nganggep Leaver "stuck" padahal jalan normal. Total tim tetap naik
-        -- selama ada Stay player yang beres tiap ronde, jadi ini sinyal yang
-        -- bener buat semua role.
-        --
-        -- Kalau CUMA device ini yang reconnect sendirian, dia bikin/join
-        -- lobby baru sementara 3 device lain masih nunggu di lobby LAMA yang
-        -- udah ditinggal — malah bikin stuck baru. Makanya begitu device ini
-        -- broadcast restart, 3 device lain ikut reconnect di polling
-        -- berikutnya (dalam ~60 detik) walau timer stuck mereka sendiri
-        -- belum habis, biar seluruh grup restart bareng.
+        -- 10 menit → broadcast restart ke seluruh grup lalu reconnect. Poin
+        -- akun sendiri gak reliable buat ini karena Follower emang selalu
+        -- Leave tiap ronde (wajar poinnya sendiri gak naik).
         local konvoiSessionStart = os.time()
         safeSpawn(function()
             local STUCK_THRESHOLD = 600
@@ -2290,8 +2183,9 @@ local function resolveMode(data)
         else                       return "event_winner" end
 
     elseif jenis == "konvoi" then
-        -- Same winner/follower convention as "event"; who LeaveLobby's each
-        -- round comes from the API's `leave` list instead, not jump_mode.
+        -- Same winner/follower convention as "event". Winner always Stays,
+        -- every Follower always Leaves each round — no separate per-round
+        -- Leave/Stay decision needed, it's just tied to this fixed role.
         if jumpMode == "jump" then return "konvoi_follower"
         else                       return "konvoi_winner" end
     end
@@ -2409,10 +2303,10 @@ local function onLobby()
 
         if not serverCode then return end
 
-        -- Region berdasarkan jenis (Konvoi pakai map yang sama dengan Event biasa)
+        -- Region berdasarkan jenis
         local jenisFix = (data and data.jenis or ""):lower()
         local joinRegion
-        if jenisFix == "event" or jenisFix == "konvoi" then
+        if jenisFix == "event" then
             joinRegion = "Seasonal"
         elseif jenisFix == "minigame" then
             joinRegion = "Jakarta"
