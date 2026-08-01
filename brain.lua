@@ -1343,7 +1343,6 @@ end
 
 local function startEvent(isWinner)
     log("[EVENT] Starting Race Nostalgia for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER"))
-    serverLock()
 
     -- Hapus phone / hub
     safeSpawn(function()
@@ -1936,7 +1935,6 @@ end
 
 local function startKonvoiEvent(isWinner, deviceId)
     log("[KONVOI] Starting Konvoi for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER") .. " (" .. tostring(deviceId) .. ")")
-    serverLock()
 
     -- Hapus phone / hub
     safeSpawn(function()
