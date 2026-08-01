@@ -331,6 +331,21 @@ local function konvoiAdvance(username)
     end
 end
 
+-- GET /api/konvoi-team-points?username=xxx → { total } summed across the
+-- whole Konvoi group. Used instead of this device's own points for the
+-- stuck/reconnect check — a Leaver's own points legitimately never move.
+local function getKonvoiTeamPoints(username)
+    local res = req({
+        Url     = API_URL .. "/api/konvoi-team-points?username=" .. HttpService:UrlEncode(username),
+        Method  = "GET",
+        Headers = { ["x-api-key"] = API_KEY },
+    })
+    if res and res.StatusCode == 200 then
+        local ok, data = pcall(function() return HttpService:JSONDecode(res.Body) end)
+        if ok then return data end
+    end
+end
+
 
 -- ═══════════════════════════════════
 --  ANTI-AFK (global, sekali)
@@ -2055,14 +2070,12 @@ local function startKonvoiEvent(isWinner, deviceId)
         end
         if not valLabel then log("[KONVOI] PointsPill Value tidak ditemukan setelah 30s"); return end
 
-        local latestPts     = 0
-        local lastValChange = os.time()
+        local latestPts = 0
 
         local function onValueChanged()
             local v = tonumber(parsePoints(valLabel.Text)) or 0
             if v > 0 and v ~= latestPts then
                 latestPts     = v
-                lastValChange = os.time()
                 evPoints.Text = tostring(v) .. " PTS"
                 sendUpdate(tostring(v))
                 safeApiUpdate(player.Name, v)
@@ -2074,21 +2087,34 @@ local function startKonvoiEvent(isWinner, deviceId)
 
         local initPts = tonumber(parsePoints(valLabel.Text)) or 0
         latestPts     = initPts
-        lastValChange = os.time()
         evPoints.Text = tostring(latestPts) .. " PTS"
         log("[KONVOI] Poin awal: " .. tostring(initPts))
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
 
-        -- Stuck detector: poin ga naik 10 menit → auto reconnect
+        -- Stuck detector: TOTAL poin 1 tim (bukan poin akun sendiri) ga naik
+        -- 10 menit → auto reconnect. Device Leaver by design gak pernah dapet
+        -- poin sendiri (yang dapet cuma yang Stay tiap ronde), jadi ngecek
+        -- poin sendiri bakal salah nganggep Leaver "stuck" padahal jalan
+        -- normal. Total tim tetap naik selama ada Stay player yang beres
+        -- tiap ronde, jadi ini sinyal yang bener buat semua role.
         safeSpawn(function()
             local STUCK_THRESHOLD = 600
+            local lastTeamTotal  = nil
+            local lastTeamChange = os.time()
             while true do
                 task.wait(60)
-                local elapsed = os.difftime(os.time(), lastValChange)
+                local teamData = getKonvoiTeamPoints(player.Name)
+                if teamData and teamData.total then
+                    if lastTeamTotal == nil or teamData.total ~= lastTeamTotal then
+                        lastTeamTotal  = teamData.total
+                        lastTeamChange = os.time()
+                    end
+                end
+                local elapsed = os.difftime(os.time(), lastTeamChange)
                 if elapsed >= STUCK_THRESHOLD then
-                    log("[KONVOI] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
-                    lastValChange = os.time()
+                    log("[KONVOI] Total poin tim gak naik " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastTeamChange = os.time()
                     ReturnLobby()
                 end
             end
@@ -2098,8 +2124,7 @@ local function startKonvoiEvent(isWinner, deviceId)
             task.wait(60)
             local cur = tonumber(parsePoints(valLabel.Text)) or 0
             if cur > 0 and cur ~= latestPts then
-                latestPts     = cur
-                lastValChange = os.time()
+                latestPts = cur
                 log("[KONVOI] Poin poll: " .. tostring(cur))
             end
             evPoints.Text = tostring(latestPts) .. " PTS"
