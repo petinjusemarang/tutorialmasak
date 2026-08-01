@@ -1550,7 +1550,7 @@ do
         RetryDelay             = 1,
         StartRaceRetryInterval = 5,   -- winner refires StartRace tiap N detik (konvoi cuma butuh 4 player, bukan 5)
         StartRaceLoopTimeout   = 300,
-        ResultTimeout          = 5,   -- lama Stay-pick cek popup Result sebelum nyerah nunggu dan tetap lanjut
+        ResultTimeout          = 30,  -- lama Stay-pick cek popup Result sebelum nyerah nunggu dan tetap lanjut
         RequeueSettleDelay     = 3,
         LeaveListRetries       = 10,  -- percobaan poll leave-list sebelum default ke STAY
     }
