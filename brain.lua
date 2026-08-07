@@ -894,8 +894,11 @@ do
         ScoreboardWaitAttempts    = 5,
         RaceAgainSettleDelay      = 3,
         RequeueAttempts           = 10,
+        LeaveJitterMin            = 1,   -- surender follower: random delay (s) before LeaveLobby, so they don't all fire at once
+        LeaveJitterMax            = 2,
     }
-    local IsWinner = true
+    local IsWinner   = true
+    local IsSurender = false -- follower-only: leave immediately on race start instead of driving (see event_mode "surender")
 
     local function rlog(msg) log("[RACE] " .. tostring(msg)) end
 
@@ -1272,6 +1275,22 @@ do
         return true
     end
 
+    -- ── Surender: follower bails out right after race start instead of
+    -- driving checkpoints. Same LeaveLobby-with-jitter pattern as Konvoi's
+    -- follower, reusing this brain's own RaceRemotes/lobby (not Konvoi's). ──
+    local function followerSurender()
+        local jitter = RaceConfig.LeaveJitterMin + math.random() * (RaceConfig.LeaveJitterMax - RaceConfig.LeaveJitterMin)
+        rlog(string.format("Surender: leaving in %.1fs...", jitter))
+        task.wait(jitter)
+        for i = 1, 3 do
+            pcall(function() leaveLobbyRemote() end)
+            rlog("LeaveLobby fired (" .. i .. "/3)")
+            task.wait(0.75)
+        end
+        task.wait(RaceConfig.RaceAgainSettleDelay)
+        return true
+    end
+
     -- ── Requeue for next lap ──
     local function requeueForNextLap()
         for attempt = 1, RaceConfig.RequeueAttempts do
@@ -1298,12 +1317,14 @@ do
         OPEN_MENU = "OPEN_MENU", ROLE_DETECTION = "ROLE_DETECTION",
         WINNER_FLOW = "WINNER_FLOW", FOLLOWER_FLOW = "FOLLOWER_FLOW",
         WAIT_RACE_START = "WAIT_RACE_START", RUN_CHECKPOINTS = "RUN_CHECKPOINTS",
+        FOLLOWER_SURENDER = "FOLLOWER_SURENDER", REQUEUE_SURENDER = "REQUEUE_SURENDER",
         WAIT_SCOREBOARD = "WAIT_SCOREBOARD", REQUEUE = "REQUEUE", FAILED = "FAILED",
     }
 
-    function RaceBrain.run(isWinner)
-        IsWinner = isWinner
-        rlog("Race Nostalgia starting as " .. (IsWinner and "WINNER" or "FOLLOWER") .. "...")
+    function RaceBrain.run(isWinner, isSurender)
+        IsWinner   = isWinner
+        IsSurender = isSurender or false
+        rlog("Race Nostalgia starting as " .. (IsWinner and "WINNER" or "FOLLOWER") .. (IsSurender and " (SURENDER)" or "") .. "...")
         local state = STATE.INIT
 
         while true do
@@ -1334,7 +1355,22 @@ do
 
             elseif state == STATE.WAIT_RACE_START then
                 rlog("Waiting for race to start (timer ticking)...")
-                state = waitForRaceStart(RaceConfig.RaceStartTimeout) and STATE.RUN_CHECKPOINTS or STATE.FAILED
+                if not waitForRaceStart(RaceConfig.RaceStartTimeout) then
+                    state = STATE.FAILED
+                elseif IsSurender and not IsWinner then
+                    state = STATE.FOLLOWER_SURENDER
+                else
+                    state = STATE.RUN_CHECKPOINTS
+                end
+
+            elseif state == STATE.FOLLOWER_SURENDER then
+                state = followerSurender() and STATE.REQUEUE_SURENDER or STATE.FAILED
+
+            elseif state == STATE.REQUEUE_SURENDER then
+                rlog("Surender selesai, balik ke NPC buat ronde berikutnya...")
+                resetLobby()
+                resetReadyState()
+                state = STATE.TELEPORT_NPC
 
             elseif state == STATE.RUN_CHECKPOINTS then
                 state = runAllCheckpoints() and STATE.WAIT_SCOREBOARD or STATE.FAILED
@@ -1374,8 +1410,8 @@ do
     end
 end
 
-local function startEvent(isWinner)
-    log("[EVENT] Starting Race Nostalgia for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER"))
+local function startEvent(isWinner, isSurender)
+    log("[EVENT] Starting Race Nostalgia for " .. player.Name .. " as " .. (isWinner and "WINNER" or "FOLLOWER") .. (isSurender and " (SURENDER)" or ""))
 
     -- Hapus phone / hub
     safeSpawn(function()
@@ -1487,16 +1523,50 @@ local function startEvent(isWinner)
         sendInit(tostring(initPts))
         apiUpdate(player.Name, initPts)
 
-        -- Stuck detector: poin ga naik 10 menit → auto reconnect
+        -- Stuck detector: poin ga naik 10 menit → auto reconnect.
+        -- Surender mode: a surender Follower's own points never move by design
+        -- (it always leaves before finishing), so its own-points check would
+        -- false-positive every 10 minutes — watch the GROUP's total instead,
+        -- same fix Konvoi already needed for its Follower (reuses the same
+        -- /api/konvoi-team-points + /api/konvoi-restart, which now also
+        -- accepts event groups toggled to "surender").
         safeSpawn(function()
             local STUCK_THRESHOLD = 600
-            while true do
-                task.wait(60)
-                local elapsed = os.difftime(os.time(), lastValChange)
-                if elapsed >= STUCK_THRESHOLD then
-                    log("[EVENT] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
-                    lastValChange = os.time()  -- reset biar ga spam
-                    ReturnLobby()
+            if isSurender then
+                local sessionStart   = os.time()
+                local lastTeamTotal  = nil
+                local lastTeamChange = os.time()
+                while true do
+                    task.wait(60)
+                    local teamData = getKonvoiTeamPoints(player.Name)
+                    if teamData then
+                        if teamData.total and (lastTeamTotal == nil or teamData.total ~= lastTeamTotal) then
+                            lastTeamTotal  = teamData.total
+                            lastTeamChange = os.time()
+                        end
+                        if teamData.restart_requested_at and teamData.restart_requested_at > sessionStart then
+                            log("[EVENT] Sinyal restart grup diterima — reconnect bareng...")
+                            ReturnLobby()
+                            return
+                        end
+                    end
+                    local elapsed = os.difftime(os.time(), lastTeamChange)
+                    if elapsed >= STUCK_THRESHOLD then
+                        log("[EVENT] Total poin tim gak naik " .. math.floor(elapsed / 60) .. "m — broadcast restart ke grup...")
+                        konvoiRestart(player.Name)
+                        lastTeamChange = os.time()
+                        ReturnLobby()
+                    end
+                end
+            else
+                while true do
+                    task.wait(60)
+                    local elapsed = os.difftime(os.time(), lastValChange)
+                    if elapsed >= STUCK_THRESHOLD then
+                        log("[EVENT] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                        lastValChange = os.time()  -- reset biar ga spam
+                        ReturnLobby()
+                    end
                 end
             end
         end)
@@ -1517,7 +1587,7 @@ local function startEvent(isWinner)
 
     -- ── Race state machine (adaptasi dari racenostalgia.lua) ──
     safeSpawn(function()
-        RaceBrain.run(isWinner)
+        RaceBrain.run(isWinner, isSurender)
     end)
 end
 
@@ -2177,6 +2247,14 @@ local function resolveMode(data)
         else                       return "minigame_nojump" end
 
     elseif jenis == "event" then
+        -- event_mode "surender" reuses the Konvoi 1-stay/rest-leave mechanic
+        -- (same winner/follower role, just routed to KonvoiBrain instead of RaceBrain)
+        local eventMode = (data.event_mode or "race"):lower()
+        if eventMode == "surender" then
+            if jumpMode == "jump" then return "event_surender_follower"
+            else                       return "event_surender_winner" end
+        end
+
         -- nojump = winner (create+start lobby), jump = follower (join lobby)
         if jumpMode == "jump" then return "event_follower"
         else                       return "event_winner" end
@@ -2411,6 +2489,12 @@ local function onIngame()
 
         elseif mode == "event_follower" then
             startEvent(false)
+
+        elseif mode == "event_surender_winner" then
+            startEvent(true, true)
+
+        elseif mode == "event_surender_follower" then
+            startEvent(false, true)
 
         elseif mode == "konvoi_winner" then
             startKonvoiEvent(true, data.device_id)
