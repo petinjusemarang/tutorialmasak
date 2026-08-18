@@ -2168,6 +2168,537 @@ local function startKonvoiEvent(isWinner, deviceId)
 end
 
 -- ═══════════════════════════════════
+--  MODE: EVENT MERDEKA
+--  Solo — tiap akun main sendiri di private server sendiri (server_code gak
+--  di-share, beda dari Event/Konvoi). Gak ada Winner/Follower: create lobby
+--  sendiri, ambil bendera, balikin, ulang terus. Adaptasi dari merdeka.lua.
+-- ═══════════════════════════════════
+local MerdekaBrain = {}
+do
+    local MerdekaConfig = {
+        LobbyName          = "Tim ProfessionalUnemploy",
+        LobbyMode          = "merdeka",
+        RetryDelay         = 1,
+        VehicleWaitTimeout = 60,
+        RaceStartTimeout   = 120,
+        DriveSpeed         = 600,
+        ArriveDistance     = 12,
+        DriveLegTimeout    = 30,
+        LongDriveTimeout   = 180,
+        FlagCaptureTimeout = 30,
+        FlagDropTimeout    = 15,
+        ReturnYOffset      = 8,
+    }
+
+    local function mlog(msg) log("[MERDEKA] " .. tostring(msg)) end
+
+    local function retry(fn, attempts, delay, label)
+        attempts = attempts or 5
+        delay    = delay or MerdekaConfig.RetryDelay
+        for i = 1, attempts do
+            local ok, err = pcall(fn)
+            if ok then return true end
+            mlog(string.format("%s failed (%d/%d): %s", label or "action", i, attempts, tostring(err)))
+            task.wait(delay)
+        end
+        return false
+    end
+
+    local function waitUntil(conditionFn, timeout, interval, label)
+        interval = interval or 0.5
+        local elapsed = 0
+        while elapsed < timeout do
+            local ok, result = pcall(conditionFn)
+            if ok and result then return result end
+            task.wait(interval)
+            elapsed = elapsed + interval
+        end
+        mlog("Timeout: " .. (label or "condition") .. " not met after " .. timeout .. "s")
+        return nil
+    end
+
+    -- ── Remotes (RaceRemotes folder, shared with racenostalgia/konvoi) ──
+    local remoteCache = {}
+    local function remoteInit()
+        local ok, folder = pcall(function() return rp:WaitForChild("RaceRemotes", 15) end)
+        if not ok or not folder then mlog("RaceRemotes folder not found"); return false end
+
+        local names = { "CreateLobby", "SelectCar", "ToggleReady", "StartRace" }
+        for _, name in ipairs(names) do
+            local remOk, remote = pcall(function() return folder:WaitForChild(name, 15) end)
+            if not remOk or not remote then mlog("Remote not found: " .. name); return false end
+            remoteCache[name] = remote
+        end
+        mlog("RaceRemotes ready")
+        return true
+    end
+
+    local function createLobbyRemote(name, mode) remoteCache.CreateLobby:FireServer(name, mode) end
+    local function selectCarRemote(id, name) remoteCache.SelectCar:FireServer(id, name) end
+    local function toggleReadyRemote() remoteCache.ToggleReady:FireServer() end
+    local function startRaceRemote() remoteCache.StartRace:FireServer() end
+
+    -- ── Car manager ──
+    local function getRandomRaceCar()
+        local ok, scrollingFrame = pcall(function()
+            return player.PlayerGui.Main.Container.Spawner.ScrollingFrame
+        end)
+        if not ok or not scrollingFrame then return nil end
+
+        local cars = {}
+        for _, car in ipairs(scrollingFrame:GetChildren()) do
+            if car:IsA("Frame") then
+                local carId   = car.Name
+                local carName = carId
+                local label = car:FindFirstChildWhichIsA("TextLabel", true)
+                if label then carName = label.Text end
+                table.insert(cars, { Id = carId, Name = carName })
+            end
+        end
+        if #cars == 0 then return nil end
+        math.randomseed(tick())
+        local selected = cars[math.random(1, #cars)]
+        return selected.Id, selected.Name
+    end
+
+    local function selectRandomCar()
+        local carId, carName = getRandomRaceCar()
+        if not carId then mlog("No car found in Spawner ScrollingFrame"); return false end
+        local ok = retry(function() selectCarRemote(carId, carName) end, 5, MerdekaConfig.RetryDelay, "SelectCar")
+        if ok then mlog("Car selected: " .. carId .. " (" .. carName .. ")") end
+        return ok
+    end
+
+    -- ── Teleport / interact NPC ──
+    local function teleportToNpc()
+        local npc = waitUntil(function()
+            return Workspace.Event.Merdeka.LobbyNPC
+        end, 15, 0.5, "NPC lookup")
+        if not npc then mlog("NPC LobbyNPC not found"); return false end
+
+        local rootPart = npc:WaitForChild("HumanoidRootPart", 10)
+        if not rootPart then mlog("LobbyNPC has no HumanoidRootPart"); return false end
+
+        local character = player.Character or player.CharacterAdded:Wait()
+        character:WaitForChild("HumanoidRootPart", 10)
+        character:PivotTo(rootPart.CFrame * CFrame.new(0, 0, 3))
+        task.wait(0.5)
+        mlog("Teleported to NPC")
+        return true
+    end
+
+    local function interactNpc()
+        local ok = retry(function()
+            local prompt = Workspace.Event.Merdeka.LobbyNPC.HumanoidRootPart:WaitForChild("ProximityPrompt", 10)
+            fireproximityprompt(prompt)
+        end, 5, MerdekaConfig.RetryDelay, "InteractNPC")
+        if ok then mlog("Interacted with NPC") end
+        return ok
+    end
+
+    -- ── Lobby (solo — selalu create ulang tiap lap, gak ada join/browse) ──
+    local function createLobby()
+        local ok = retry(function() createLobbyRemote(MerdekaConfig.LobbyName, MerdekaConfig.LobbyMode) end,
+            5, MerdekaConfig.RetryDelay, "CreateLobby")
+        if ok then mlog("Lobby created: " .. MerdekaConfig.LobbyName) end
+        return ok
+    end
+
+    -- ── Ready ──
+    local function toggleReady()
+        local ok = retry(function() toggleReadyRemote() end, 5, MerdekaConfig.RetryDelay, "ToggleReady")
+        if ok then mlog("Ready toggled") end
+        return ok
+    end
+
+    -- ── Start race ──
+    local function startRace()
+        local ok = retry(function() startRaceRemote() end, 5, MerdekaConfig.RetryDelay, "StartRace")
+        if ok then mlog("StartRace fired") end
+        return ok
+    end
+
+    -- ── Wait sampai duduk di mobil ──
+    local function waitInVehicle()
+        local chassisInterface = player.PlayerGui:WaitForChild("A-Chassis Interface", MerdekaConfig.VehicleWaitTimeout)
+        if chassisInterface then mlog("Sudah di dalam mobil"); return true end
+        mlog("Timeout menunggu A-Chassis Interface")
+        return false
+    end
+
+    -- ── Wait race mulai (TimerLabel berubah) ──
+    local function waitRaceStart(timeout)
+        timeout = timeout or MerdekaConfig.RaceStartTimeout
+        local merdekaGui = player.PlayerGui:WaitForChild("MerdekaEvent", 15)
+        if not merdekaGui then mlog("MerdekaEvent GUI not found"); return false end
+        local ok, timerLabel = pcall(function()
+            return merdekaGui.Container.Progress.TimerRow.TimerLabel
+        end)
+        if not ok or not timerLabel then mlog("TimerLabel not found"); return false end
+
+        local baseline = timerLabel.Text
+        local elapsed = 0
+        while elapsed < timeout do
+            task.wait(1)
+            elapsed = elapsed + 1
+            local textOk, currentText = pcall(function() return timerLabel.Text end)
+            if textOk and currentText ~= baseline then
+                mlog("Race sudah mulai, timer berubah: " .. baseline .. " -> " .. currentText)
+                return true
+            end
+        end
+        mlog("Timeout menunggu race mulai")
+        return false
+    end
+
+    -- ── Drive ke titik bendera (data spot presisi, dari data collection manual) ──
+    local FLAG_SPOTS = {
+        [1] = Vector3.new(7012.628906, -0.680334, -2591.969238),
+        [2] = Vector3.new(-2268.640381, -25.941872, 1519.879395),
+        [3] = Vector3.new(1984.369751, -29.652336, -2880.953613),
+        [4] = Vector3.new(10740.369141, -14.802860, 3876.270508),
+        [5] = Vector3.new(4068.312500, -25.514038, -1497.882935),
+        [6] = Vector3.new(2482.523193, 12.362131, 2324.760742),
+        [7] = Vector3.new(1698.429932, -13.407356, 103.762543),
+        [8] = Vector3.new(1325.503540, -23.932224, -2644.533447),
+    }
+    local RETURN_FLAG_POSITION = Vector3.new(1956.355713, -20.677620, -4444.123047)
+
+    local function getVehicle()
+        local character = player.Character
+        local humanoid  = character and character:FindFirstChildOfClass("Humanoid")
+        local seatPart  = humanoid and humanoid.SeatPart
+        return seatPart and seatPart:FindFirstAncestorOfClass("Model")
+    end
+
+    local function readDestinationLabel()
+        local ok, label = pcall(function()
+            return player.PlayerGui.MerdekaEvent.Container.Progress.DestinationRow.DestinationLabel
+        end)
+        if not ok or not label then return nil end
+        local text = label.Text or ""
+        return { Raw = text, FlagNumber = tonumber(text:match("[Bb]endera%s*(%d+)")) }
+    end
+
+    local function driveVehicleTo(targetPosition, label, timeout)
+        label   = label or "target"
+        timeout = timeout or MerdekaConfig.DriveLegTimeout
+        local elapsed = 0
+
+        while elapsed < timeout do
+            local vehicle = getVehicle()
+            if not vehicle then
+                mlog("Tidak duduk di vehicle, batal drive ke " .. label)
+                return false
+            end
+
+            local currentPos = vehicle:GetPivot().Position
+            local offset      = targetPosition - currentPos
+            local distance     = offset.Magnitude
+
+            if distance <= MerdekaConfig.ArriveDistance then
+                mlog("Sampai di " .. label)
+                return true
+            end
+
+            local dt = RunService.Heartbeat:Wait()
+            elapsed = elapsed + dt
+
+            local direction = offset.Unit
+            local step       = math.min(MerdekaConfig.DriveSpeed * dt, distance)
+            local newPos     = currentPos + direction * step
+            vehicle:PivotTo(CFrame.lookAt(newPos, newPos + direction))
+        end
+
+        mlog("Timeout drive ke " .. label)
+        return false
+    end
+
+    local function driveToFlagSpot()
+        local info = readDestinationLabel()
+        if not info or not info.FlagNumber then
+            mlog("Tidak bisa baca nomor bendera dari DestinationLabel: " .. tostring(info and info.Raw))
+            return false
+        end
+
+        local targetPos = FLAG_SPOTS[info.FlagNumber]
+        if not targetPos then
+            mlog("Tidak ada data spot untuk Titik Bendera " .. info.FlagNumber)
+            return false
+        end
+
+        mlog("Target: Titik Bendera " .. info.FlagNumber)
+        return driveVehicleTo(targetPos, "flag spot " .. info.FlagNumber, MerdekaConfig.LongDriveTimeout)
+    end
+
+    -- ── Wait bendera terambil (DestinationLabel berubah) ──
+    local function waitFlagCaptured(timeout)
+        timeout = timeout or MerdekaConfig.FlagCaptureTimeout
+        local ok, destinationLabel = pcall(function()
+            return player.PlayerGui.MerdekaEvent.Container.Progress.DestinationRow.DestinationLabel
+        end)
+        if not ok or not destinationLabel then mlog("DestinationLabel not found"); return false end
+
+        local baseline = destinationLabel.Text
+        local elapsed = 0
+
+        while elapsed < timeout do
+            task.wait(0.5)
+            elapsed = elapsed + 0.5
+            local textOk, currentText = pcall(function() return destinationLabel.Text end)
+            if textOk and currentText ~= baseline then
+                mlog("Bendera didapat! DestinationLabel berubah: " .. baseline .. " -> " .. currentText)
+                return true
+            end
+        end
+        mlog("Timeout menunggu bendera terambil")
+        return false
+    end
+
+    -- ── Drive balik bawa bendera + tunggu ke-drop (CarryFlag_<Player> hilang) ──
+    local function isCarryingFlag()
+        local ok, result = pcall(function()
+            local carFolder = Workspace.Vehicles:FindFirstChild(player.Name .. "sCar")
+            return carFolder ~= nil and carFolder:FindFirstChild("CarryFlag_" .. player.Name) ~= nil
+        end)
+        return ok and result
+    end
+
+    local function waitFlagDropped(timeout)
+        timeout = timeout or MerdekaConfig.FlagDropTimeout
+        local elapsed = 0
+        while elapsed < timeout do
+            if not isCarryingFlag() then
+                mlog("Bendera sudah ke-drop (CarryFlag hilang)")
+                return true
+            end
+            task.wait(0.5)
+            elapsed = elapsed + 0.5
+        end
+        mlog("Timeout menunggu bendera ke-drop, CarryFlag masih ada")
+        return false
+    end
+
+    local function driveBackToStartPoint()
+        local targetPos = RETURN_FLAG_POSITION + Vector3.new(0, MerdekaConfig.ReturnYOffset, 0)
+        if not driveVehicleTo(targetPos, "titik balik bendera", MerdekaConfig.LongDriveTimeout) then
+            return false
+        end
+        return waitFlagDropped()
+    end
+
+    -- ── Exit mobil ──
+    local function exitVehicle()
+        local character = player.Character
+        local humanoid  = character and character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then mlog("Humanoid tidak ditemukan, tidak bisa exit car"); return false end
+        humanoid.Sit = false
+        mlog("Keluar dari mobil")
+        return true
+    end
+
+    -- ── Poin (MerdekaShopData) — nilainya bisa balik dalam format ada koma
+    -- (mis. "12,345"), jadi selalu strip karakter non-digit sebelum tonumber. ──
+    local function fetchMerdekaPoints()
+        local ok, result = pcall(function()
+            return rp:WaitForChild("NetworkContainer", 15)
+                :WaitForChild("RemoteFunctions", 15)
+                :WaitForChild("MerdekaShopData", 15)
+                :InvokeServer()
+        end)
+        if not ok then mlog("Gagal ambil MerdekaShopData: " .. tostring(result)); return nil end
+
+        local raw = result
+        if type(result) == "table" then
+            raw = result.Points or result.Point or result.points or result.point
+                or result.Total or result.total
+        end
+
+        local digits = tostring(raw or ""):gsub("%D", "")
+        if digits == "" then return nil end
+        return tonumber(digits)
+    end
+    MerdekaBrain.fetchPoints = fetchMerdekaPoints
+
+    -- ── State machine ──
+    local STATE = {
+        INIT = "INIT", TELEPORT_NPC = "TELEPORT_NPC", INTERACT_NPC = "INTERACT_NPC",
+        CREATE_LOBBY = "CREATE_LOBBY", SELECT_CAR = "SELECT_CAR", READY = "READY",
+        START_RACE = "START_RACE", WAIT_VEHICLE = "WAIT_VEHICLE", WAIT_RACE_START = "WAIT_RACE_START",
+        DRIVE_TO_FLAG = "DRIVE_TO_FLAG", WAIT_FLAG_CAPTURED = "WAIT_FLAG_CAPTURED",
+        DRIVE_BACK = "DRIVE_BACK", EXIT_VEHICLE = "EXIT_VEHICLE", REQUEUE = "REQUEUE", FAILED = "FAILED",
+    }
+
+    function MerdekaBrain.run()
+        mlog("Merdeka starting for " .. player.Name .. " (solo)...")
+        local state = STATE.INIT
+
+        while true do
+            if state == STATE.INIT then
+                state = remoteInit() and STATE.TELEPORT_NPC or STATE.FAILED
+
+            elseif state == STATE.TELEPORT_NPC then
+                mlog("Teleporting to NPC...")
+                state = teleportToNpc() and STATE.INTERACT_NPC or STATE.FAILED
+
+            elseif state == STATE.INTERACT_NPC then
+                mlog("Interacting with NPC...")
+                state = interactNpc() and STATE.CREATE_LOBBY or STATE.FAILED
+
+            elseif state == STATE.CREATE_LOBBY then
+                mlog("Creating lobby...")
+                state = createLobby() and STATE.SELECT_CAR or STATE.FAILED
+
+            elseif state == STATE.SELECT_CAR then
+                state = selectRandomCar() and STATE.READY or STATE.FAILED
+
+            elseif state == STATE.READY then
+                state = toggleReady() and STATE.START_RACE or STATE.FAILED
+
+            elseif state == STATE.START_RACE then
+                state = startRace() and STATE.WAIT_VEHICLE or STATE.FAILED
+
+            elseif state == STATE.WAIT_VEHICLE then
+                mlog("Menunggu masuk mobil...")
+                state = waitInVehicle() and STATE.WAIT_RACE_START or STATE.FAILED
+
+            elseif state == STATE.WAIT_RACE_START then
+                mlog("Menunggu race mulai...")
+                state = waitRaceStart() and STATE.DRIVE_TO_FLAG or STATE.FAILED
+
+            elseif state == STATE.DRIVE_TO_FLAG then
+                state = driveToFlagSpot() and STATE.WAIT_FLAG_CAPTURED or STATE.FAILED
+
+            elseif state == STATE.WAIT_FLAG_CAPTURED then
+                state = waitFlagCaptured() and STATE.DRIVE_BACK or STATE.FAILED
+
+            elseif state == STATE.DRIVE_BACK then
+                state = driveBackToStartPoint() and STATE.EXIT_VEHICLE or STATE.FAILED
+
+            elseif state == STATE.EXIT_VEHICLE then
+                state = exitVehicle() and STATE.REQUEUE or STATE.FAILED
+
+            elseif state == STATE.REQUEUE then
+                mlog("Lap selesai, balik ke NPC buat lap berikutnya...")
+                state = STATE.TELEPORT_NPC
+
+            elseif state == STATE.FAILED then
+                mlog("Merdeka failed. Reconnecting to recover...")
+                ReturnLobby()
+                break
+            end
+        end
+    end
+end
+
+local function startMerdekaEvent(deviceId)
+    log("[MERDEKA] Starting Merdeka for " .. player.Name .. " (" .. tostring(deviceId) .. ")")
+
+    -- Hapus phone / hub
+    safeSpawn(function()
+        pcall(function()
+            local robloxGui = CoreGui:WaitForChild("RobloxGui", 10)
+            local backpack  = robloxGui and robloxGui:WaitForChild("Backpack", 10)
+            local hotbar    = backpack  and backpack:WaitForChild("Hotbar", 10)
+            if hotbar then hotbar:Destroy() end
+        end)
+    end)
+
+    -- ── Overlay GUI ──
+    pcall(function()
+        if CoreGui:FindFirstChild("SamlongMerdekaUI") then CoreGui.SamlongMerdekaUI:Destroy() end
+    end)
+
+    local evGui = Instance.new("ScreenGui")
+    evGui.Name           = "SamlongMerdekaUI"
+    evGui.ResetOnSpawn   = false
+    evGui.DisplayOrder   = 9999
+    evGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    evGui.Parent         = CoreGui
+
+    local evFrame = Instance.new("Frame", evGui)
+    evFrame.Size             = UDim2.new(0, 480, 0, 220)
+    evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
+    evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
+    evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
+    evFrame.BackgroundTransparency = 0.15
+    evFrame.BorderSizePixel  = 0
+    Instance.new("UICorner", evFrame).CornerRadius = UDim.new(0, 18)
+
+    local stroke = Instance.new("UIStroke", evFrame)
+    stroke.Color     = Color3.fromRGB(255, 60, 60)
+    stroke.Thickness = 2.5
+
+    local evName = Instance.new("TextLabel", evFrame)
+    evName.Size                   = UDim2.new(1, -24, 0, 70)
+    evName.Position               = UDim2.new(0, 12, 0, 16)
+    evName.BackgroundTransparency = 1
+    evName.Font                   = Enum.Font.GothamBlack
+    evName.TextScaled             = true
+    evName.TextColor3             = Color3.fromRGB(255, 220, 60)
+    evName.TextStrokeTransparency = 0.4
+    evName.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evName.TextXAlignment         = Enum.TextXAlignment.Center
+    evName.Text                   = player.Name .. " (MERDEKA) · " .. tostring(deviceId)
+
+    local evPoints = Instance.new("TextLabel", evFrame)
+    evPoints.Size                   = UDim2.new(1, -24, 0, 110)
+    evPoints.Position               = UDim2.new(0, 12, 0, 92)
+    evPoints.BackgroundTransparency = 1
+    evPoints.Font                   = Enum.Font.GothamBlack
+    evPoints.TextScaled             = true
+    evPoints.TextColor3             = Color3.new(1, 1, 1)
+    evPoints.TextStrokeTransparency = 0.4
+    evPoints.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evPoints.TextXAlignment         = Enum.TextXAlignment.Center
+    evPoints.Text                   = "... PTS"
+
+    -- ── Fetch jumlah point ke web (poin bisa balik format koma, sudah
+    -- di-strip di dalam MerdekaBrain.fetchPoints) ──
+    safeSpawn(function()
+        local initPts        = MerdekaBrain.fetchPoints() or 0
+        local latestPts       = initPts
+        local lastValChange   = os.time()
+        evPoints.Text = tostring(latestPts) .. " PTS"
+        log("[MERDEKA] Poin awal: " .. tostring(initPts))
+        sendInit(tostring(initPts))
+        apiUpdate(player.Name, initPts)
+
+        -- Stuck detector: poin ga naik 10 menit → auto reconnect.
+        safeSpawn(function()
+            local STUCK_THRESHOLD = 600
+            while true do
+                task.wait(60)
+                local elapsed = os.difftime(os.time(), lastValChange)
+                if elapsed >= STUCK_THRESHOLD then
+                    log("[MERDEKA] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastValChange = os.time()
+                    ReturnLobby()
+                end
+            end
+        end)
+
+        while true do
+            task.wait(60)
+            local cur = MerdekaBrain.fetchPoints()
+            if cur and cur > 0 and cur ~= latestPts then
+                latestPts     = cur
+                lastValChange = os.time()
+                log("[MERDEKA] Poin update: " .. tostring(cur))
+            end
+            evPoints.Text = tostring(latestPts) .. " PTS"
+            sendUpdate(tostring(latestPts))
+            safeApiUpdate(player.Name, latestPts)
+        end
+    end)
+
+    -- ── Merdeka state machine ──
+    safeSpawn(function()
+        MerdekaBrain.run()
+    end)
+end
+
+-- ═══════════════════════════════════
 --  MODE: DDS
 -- ═══════════════════════════════════
 local function startDDS()
@@ -2265,6 +2796,10 @@ local function resolveMode(data)
         -- Leave/Stay decision needed, it's just tied to this fixed role.
         if jumpMode == "jump" then return "konvoi_follower"
         else                       return "konvoi_winner" end
+
+    elseif jenis == "merdeka" then
+        -- Solo — each account creates and plays its own lobby, no winner/follower role.
+        return "merdeka_solo"
     end
 
     return nil
@@ -2387,6 +2922,8 @@ local function onLobby()
             joinRegion = "Seasonal"
         elseif jenisFix == "minigame" then
             joinRegion = "Jakarta"
+        elseif jenisFix == "merdeka" then
+            joinRegion = "Bandung"
         else
             joinRegion = "JawaTimur"
         end
@@ -2501,6 +3038,9 @@ local function onIngame()
 
         elseif mode == "konvoi_follower" then
             startKonvoiEvent(false, data.device_id)
+
+        elseif mode == "merdeka_solo" then
+            startMerdekaEvent(data.device_id)
         end
     end)
 end
