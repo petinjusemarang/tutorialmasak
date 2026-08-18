@@ -2265,7 +2265,10 @@ do
         local carId, carName = getRandomRaceCar()
         if not carId then mlog("No car found in Spawner ScrollingFrame"); return false end
         local ok = retry(function() selectCarRemote(carId, carName) end, 5, MerdekaConfig.RetryDelay, "SelectCar")
-        if ok then mlog("Car selected: " .. carId .. " (" .. carName .. ")") end
+        if ok then
+            mlog("Car selected: " .. carId .. " (" .. carName .. ")")
+            task.wait(1)
+        end
         return ok
     end
 
@@ -2292,22 +2295,35 @@ do
             local prompt = Workspace.Event.Merdeka.LobbyNPC.HumanoidRootPart:WaitForChild("ProximityPrompt", 10)
             fireproximityprompt(prompt)
         end, 5, MerdekaConfig.RetryDelay, "InteractNPC")
-        if ok then mlog("Interacted with NPC") end
+        if ok then
+            mlog("Interacted with NPC")
+            task.wait(1)
+        end
         return ok
     end
 
     -- ── Lobby (solo — selalu create ulang tiap lap, gak ada join/browse) ──
+    -- Tiap remote dikasih jeda 1s setelah sukses (sama seperti merdeka.lua
+    -- asli) — server butuh waktu proses CreateLobby/SelectCar/ToggleReady
+    -- sebelum remote berikutnya ditembak, kalau kepencet langsung beruntun
+    -- dia silently no-op dan macet di menu BUAT TIM/GABUNG TIM.
     local function createLobby()
         local ok = retry(function() createLobbyRemote(MerdekaConfig.LobbyName, MerdekaConfig.LobbyMode) end,
             5, MerdekaConfig.RetryDelay, "CreateLobby")
-        if ok then mlog("Lobby created: " .. MerdekaConfig.LobbyName) end
+        if ok then
+            mlog("Lobby created: " .. MerdekaConfig.LobbyName)
+            task.wait(1)
+        end
         return ok
     end
 
     -- ── Ready ──
     local function toggleReady()
         local ok = retry(function() toggleReadyRemote() end, 5, MerdekaConfig.RetryDelay, "ToggleReady")
-        if ok then mlog("Ready toggled") end
+        if ok then
+            mlog("Ready toggled")
+            task.wait(1)
+        end
         return ok
     end
 
