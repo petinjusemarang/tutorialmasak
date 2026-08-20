@@ -2715,6 +2715,1556 @@ local function startMerdekaEvent(deviceId)
 end
 
 -- ═══════════════════════════════════
+--  MODE: EVENT BCA (MyBCA bank courier)
+--  Solo — sama seperti Merdeka, tiap akun jalanin quest sendiri di private
+--  server sendiri (server_code gak di-share). Diadaptasi dari bca.lua: clear
+--  map (platform pijakan + lantai raksasa menggantikan Terrain/Map yang
+--  di-wipe) lalu quest 12-step (ngobrol NPC, spawn mobil, muat koper ke
+--  bagasi, antar tiap koper ke ATM tujuannya, setor) diulang terus.
+-- ═══════════════════════════════════
+local BcaBrain = {}
+do
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+
+    local function blog(msg) log("[BCA] " .. tostring(msg)) end
+
+    local function getCharacter()
+        local character = player.Character
+        if not character then
+            character = player.CharacterAdded:Wait()
+        end
+        local hrp = character:WaitForChild("HumanoidRootPart")
+        return character, hrp
+    end
+
+    -- Hotbar bawaan Roblox gak kepakai sama sekali di quest ini.
+    local function bcaDeleteBackpack()
+        local backpack = player:FindFirstChild("Backpack")
+        if backpack then backpack:Destroy() end
+    end
+
+    --======================================================
+    -- CLEAR MAP — landmark platforms + lantai kotak raksasa
+    -- (pijakan pengganti Terrain/Map yang di-wipe)
+    --======================================================
+    local BCA_LANDMARKS = {
+        { name = "Respawn",        cframe = CFrame.new(-2197.001709, 19.069168, 1447.533691),  size = Vector3.new(150, 4, 150) },
+        { name = "CarSpawnerArea", cframe = CFrame.new(1860.007080, 13.370062, -4897.120605),   size = Vector3.new(500, 4, 500) },
+        { name = "ATM1",  cframe = CFrame.new(6381.612793, 21.813574, -7198.071289),  size = Vector3.new(20, 4, 20) },
+        { name = "ATM2",  cframe = CFrame.new(2220.207031, 28.077150, -4594.378418),  size = Vector3.new(20, 4, 20) },
+        { name = "ATM3",  cframe = CFrame.new(832.588562, 22.856527, -3819.309082),   size = Vector3.new(20, 4, 20) },
+        { name = "ATM4",  cframe = CFrame.new(-1907.274292, 23.770407, 1141.594482),  size = Vector3.new(20, 4, 20) },
+        { name = "ATM5",  cframe = CFrame.new(-4522.882324, 25.727510, 4376.390137),  size = Vector3.new(20, 4, 20) },
+        { name = "ATM6",  cframe = CFrame.new(-4506.811523, 23.649044, 9662.726562),  size = Vector3.new(20, 4, 20) },
+        { name = "ATM7",  cframe = CFrame.new(-475.867584, 27.291304, 8732.920898),   size = Vector3.new(20, 4, 20) },
+        { name = "ATM8",  cframe = CFrame.new(-232.495178, 23.529095, 10729.978516),  size = Vector3.new(20, 4, 20) },
+        { name = "ATM9",  cframe = CFrame.new(1586.373901, 52.160751, 871.395325),    size = Vector3.new(20, 4, 20) },
+        { name = "ATM10", cframe = CFrame.new(1990.800537, 23.063835, -3526.621582),  size = Vector3.new(20, 4, 20) },
+    }
+
+    local function buildBcaLandmarkPlatforms()
+        local existing = workspace:FindFirstChild("BcaGroundPlatforms")
+        if existing then existing:Destroy() end
+
+        local folder = Instance.new("Folder")
+        folder.Name = "BcaGroundPlatforms"
+        folder.Parent = workspace
+
+        for _, landmark in ipairs(BCA_LANDMARKS) do
+            local part = Instance.new("Part")
+            part.Name = landmark.name
+            part.Size = landmark.size
+            part.Anchored = true
+            part.CanCollide = true
+            part.CanTouch = true
+            part.CanQuery = true
+            part.Material = Enum.Material.Concrete
+            part.Color = Color3.fromRGB(80, 80, 90)
+            part.TopSurface = Enum.SurfaceType.Smooth
+            part.BottomSurface = Enum.SurfaceType.Smooth
+
+            local topPosition = landmark.cframe.Position
+            part.CFrame = CFrame.new(topPosition - Vector3.new(0, landmark.size.Y / 2, 0))
+            part.Parent = folder
+        end
+
+        blog("Landmark platforms dibuat: " .. #BCA_LANDMARKS)
+    end
+
+    local FLOOR_THICKNESS  = 2
+    local FLOOR_MAX_CHUNK  = 1800
+    local FLOOR_PADDING    = 400
+    local FLOOR_Y_OFFSET   = 7
+
+    local bcaFloorY          = nil
+    local bcaFloorEntryPoint = nil
+
+    local function buildBcaFloorBox()
+        local floorMinX, floorMaxX = math.huge, -math.huge
+        local floorMinZ, floorMaxZ = math.huge, -math.huge
+        local carSpawnerFloorPosition = nil
+
+        for _, landmark in ipairs(BCA_LANDMARKS) do
+            if landmark.name == "CarSpawnerArea" or landmark.name:match("^ATM%d+$") then
+                local pos = landmark.cframe.Position
+                if landmark.name == "CarSpawnerArea" then carSpawnerFloorPosition = pos end
+                if pos.X < floorMinX then floorMinX = pos.X end
+                if pos.X > floorMaxX then floorMaxX = pos.X end
+                if pos.Z < floorMinZ then floorMinZ = pos.Z end
+                if pos.Z > floorMaxZ then floorMaxZ = pos.Z end
+            end
+        end
+
+        floorMinX = floorMinX - FLOOR_PADDING; floorMaxX = floorMaxX + FLOOR_PADDING
+        floorMinZ = floorMinZ - FLOOR_PADDING; floorMaxZ = floorMaxZ + FLOOR_PADDING
+
+        bcaFloorY = carSpawnerFloorPosition and (carSpawnerFloorPosition.Y + FLOOR_Y_OFFSET) or 0
+        bcaFloorEntryPoint = carSpawnerFloorPosition
+            and Vector3.new(carSpawnerFloorPosition.X, bcaFloorY + 1, carSpawnerFloorPosition.Z)
+
+        local existing = workspace:FindFirstChild("BcaFloorBox")
+        if existing then existing:Destroy() end
+
+        local folder = Instance.new("Folder")
+        folder.Name = "BcaFloorBox"
+        folder.Parent = workspace
+
+        local totalWidth  = floorMaxX - floorMinX
+        local totalDepth  = floorMaxZ - floorMinZ
+        local chunkCountX = math.max(1, math.ceil(totalWidth / FLOOR_MAX_CHUNK))
+        local chunkCountZ = math.max(1, math.ceil(totalDepth / FLOOR_MAX_CHUNK))
+        local chunkWidth  = totalWidth / chunkCountX
+        local chunkDepth  = totalDepth / chunkCountZ
+        local partCount   = 0
+
+        for ix = 1, chunkCountX do
+            for iz = 1, chunkCountZ do
+                local centerX = floorMinX + chunkWidth * (ix - 0.5)
+                local centerZ = floorMinZ + chunkDepth * (iz - 0.5)
+
+                local part = Instance.new("Part")
+                part.Name = "FloorChunk_" .. ix .. "_" .. iz
+                part.Size = Vector3.new(chunkWidth + 4, FLOOR_THICKNESS, chunkDepth + 4)
+                part.CFrame = CFrame.new(centerX, bcaFloorY - FLOOR_THICKNESS / 2, centerZ)
+                part.Anchored = true
+                part.CanCollide = true
+                part.CanTouch = true
+                part.CanQuery = true
+                part.Material = Enum.Material.Concrete
+                part.Color = Color3.fromRGB(60, 60, 70)
+                part.TopSurface = Enum.SurfaceType.Smooth
+                part.BottomSurface = Enum.SurfaceType.Smooth
+                part.Parent = folder
+
+                partCount = partCount + 1
+            end
+        end
+
+        blog("Lantai kotak dibuat: " .. partCount .. " part (" .. chunkCountX .. "x" .. chunkCountZ .. ") di Y=" .. tostring(bcaFloorY))
+    end
+
+    -- Whitelist/blacklist sama persis dengan bca.lua asli.
+    local BCA_WHITELIST_NAMES = {
+        MY_BCA_COLLAB = true, Vehicles = true, Lives = true,
+        BankCourierRoute = true, __BankCourierTarget = true,
+    }
+
+    local BCA_BLACKLIST_NAMES = {
+        "2026LahkokginiTitano", "Asset", "Client", "EditableBuilds", "Etc",
+        "Hover", "LightingAmbientRevamp", "MELAWAI", "Map", "Minigames",
+        "ModificationCache", "ModificationPart", "MoreVehicle", "NPC",
+        "Rambu and props", "Refund", "SATPAM_NAVBLOCK", "StreetLampTemplate",
+        "TeleportFolder", "Train", "Train2", "ZoneFolder", "duplikat temp",
+        "ArrowModel", "Flag",
+    }
+
+    -- Index-based targets (referensi Workspace:GetChildren() index, RISKY
+    -- kalau urutan children berubah — makanya tiap item di-log Name+ClassName
+    -- sebelum di-Destroy buat verifikasi manual di console).
+    local BCA_BLACKLIST_INDICES = { 27, 28, 29, 30, 31, 32, 33, 34 }
+
+    local function bcaIsWhitelisted(instance)
+        if not instance then return true end
+        return BCA_WHITELIST_NAMES[instance.Name] == true
+    end
+
+    local function bcaClearMap()
+        blog("===== CLEAR MAP START =====")
+
+        for _, name in ipairs(BCA_BLACKLIST_NAMES) do
+            local target = workspace:FindFirstChild(name)
+            if target then
+                if bcaIsWhitelisted(target) then
+                    blog("SKIP (whitelisted): " .. name)
+                else
+                    target:Destroy()
+                end
+            end
+        end
+
+        local snapshot = workspace:GetChildren()
+        local sortedIndices = {}
+        for _, idx in ipairs(BCA_BLACKLIST_INDICES) do table.insert(sortedIndices, idx) end
+        table.sort(sortedIndices, function(a, b) return a > b end)
+
+        for _, idx in ipairs(sortedIndices) do
+            local target = snapshot[idx]
+            if target and target.Parent then
+                if bcaIsWhitelisted(target) then
+                    blog("SKIP index " .. idx .. " (whitelisted): " .. target.Name)
+                else
+                    blog("Deleting index " .. idx .. ": " .. target.Name .. " (" .. target.ClassName .. ")")
+                    target:Destroy()
+                end
+            else
+                blog("Index " .. idx .. " tidak valid / instance sudah hilang")
+            end
+        end
+
+        local terrain = workspace:FindFirstChildOfClass("Terrain")
+        if terrain then
+            blog("Clearing Terrain...")
+            terrain:Clear()
+        end
+
+        blog("===== CLEAR MAP DONE =====")
+    end
+
+    --======================================================
+    -- DRIVING HELPERS
+    --======================================================
+    local SPORT_TRANSMISSION_MODE = "S"
+
+    local function tapKey(keyCode, holdTime)
+        holdTime = holdTime or 0.15
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        task.wait(holdTime)
+        VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+    end
+
+    local function getChassisValue(valueName)
+        local chassisInterface = player.PlayerGui:FindFirstChild("A-Chassis Interface")
+        if not chassisInterface then return nil end
+        local values = chassisInterface:FindFirstChild("Values")
+        return values and values:FindFirstChild(valueName)
+    end
+
+    local function releaseHandbrakeIfNeeded()
+        local pbrakeValue = getChassisValue("PBrake")
+        if not pbrakeValue then return end
+        for _ = 1, 3 do
+            if not pbrakeValue.Value then break end
+            tapKey(Enum.KeyCode.P, 0.15)
+            task.wait(0.3)
+        end
+    end
+
+    local function engageHandbrake()
+        local pbrakeValue = getChassisValue("PBrake")
+        if not pbrakeValue then return end
+        for _ = 1, 3 do
+            if pbrakeValue.Value then break end
+            tapKey(Enum.KeyCode.P, 0.15)
+            task.wait(0.3)
+        end
+    end
+
+    local function ensureForwardGearEngaged()
+        local gearValue = getChassisValue("Gear")
+        if not gearValue then return end
+        for _ = 1, 3 do
+            if gearValue.Value > 0 then break end
+            tapKey(Enum.KeyCode.E, 0.15)
+            task.wait(0.3)
+        end
+    end
+
+    local function getTransmissionDisplayLabel()
+        local chassisInterface = player.PlayerGui:FindFirstChild("A-Chassis Interface")
+        local speedo  = chassisInterface and chassisInterface:FindFirstChild("Speedo")
+        local speedo1 = speedo and speedo:FindFirstChild("Speedo1")
+        local main    = speedo1 and speedo1:FindFirstChild("Main")
+        return main and main:FindFirstChild("Transmission")
+    end
+
+    local function ensureSportTransmissionMode()
+        local transmissionLabel = getTransmissionDisplayLabel()
+        if not transmissionLabel then return end
+        for _ = 1, 5 do
+            if transmissionLabel.Text == SPORT_TRANSMISSION_MODE then break end
+            tapKey(Enum.KeyCode.M, 0.15)
+            task.wait(0.3)
+        end
+    end
+
+    local function performDriveMaintenance()
+        releaseHandbrakeIfNeeded()
+        ensureForwardGearEngaged()
+        ensureSportTransmissionMode()
+    end
+
+    -- Teleport ke jalur lurus: hover -> freeze -> turun pelan (biar fisik
+    -- mobil ga "kaget" begitu langsung nempel jalur yang baru di-stream-in).
+    local function teleportToStraightRoad(startPos, lookAtPos)
+        local character, hrp = getCharacter()
+        local vehicles = workspace:FindFirstChild("Vehicles")
+        local car = vehicles and vehicles:FindFirstChild(player.Name .. "sCar")
+
+        local HOVER_HEIGHT, FREEZE_DURATION, LOWER_DURATION = 30, 1.5, 1.5
+
+        local hoverPos    = startPos + Vector3.new(0, HOVER_HEIGHT, 0)
+        local hoverCFrame = CFrame.new(hoverPos, hoverPos + (lookAtPos - startPos))
+        local groundCFrame = CFrame.new(startPos, lookAtPos)
+
+        if not car then
+            hrp.CFrame = hoverCFrame
+            task.wait(FREEZE_DURATION)
+            hrp.CFrame = groundCFrame
+            return
+        end
+
+        local oldCarCFrame = car:GetPivot()
+        local offset = oldCarCFrame:ToObjectSpace(hrp.CFrame)
+
+        local anchoredParts = {}
+        for _, part in ipairs(car:GetDescendants()) do
+            if part:IsA("BasePart") then
+                table.insert(anchoredParts, { part = part, wasAnchored = part.Anchored })
+                part.Anchored = true
+            end
+        end
+
+        car:PivotTo(hoverCFrame)
+        hrp.CFrame = hoverCFrame * offset
+        task.wait(FREEZE_DURATION)
+
+        local lowerStart = tick()
+        while tick() - lowerStart < LOWER_DURATION do
+            local alpha = (tick() - lowerStart) / LOWER_DURATION
+            local stepCFrame = hoverCFrame:Lerp(groundCFrame, alpha)
+            car:PivotTo(stepCFrame)
+            hrp.CFrame = stepCFrame * offset
+            task.wait(0.03)
+        end
+
+        car:PivotTo(groundCFrame)
+        hrp.CFrame = groundCFrame * offset
+
+        for _, entry in ipairs(anchoredParts) do
+            entry.part.Anchored = entry.wasAnchored
+        end
+    end
+
+    -- Drive lurus lineStart -> lineEnd dalam kira-kira desiredSeconds detik
+    -- (CFrame-drag murni, W ditahan cuma buat visual roda muter — posisi
+    -- dilacak sendiri di currentPos, BUKAN dibaca ulang dari car:GetPivot()
+    -- tiap frame, biar gerakan fisik asli dari wheel motor yang masih
+    -- "narik" gara-gara W ketahan ga ikut double-count jarak tempuh).
+    local function wrapDriveTimedTo(lineStart, lineEnd, desiredSeconds, arriveDistance)
+        desiredSeconds = desiredSeconds or 55
+        arriveDistance = arriveDistance or 15
+
+        local vehicles = workspace:FindFirstChild("Vehicles")
+        local car = vehicles and vehicles:FindFirstChild(player.Name .. "sCar")
+        if not car then return false end
+
+        local character, hrp = getCharacter()
+
+        local fullLine = lineEnd - lineStart
+        local totalDistance = fullLine.Magnitude
+        local lineDir = fullLine.Unit
+        local travelDistance = math.max(totalDistance - arriveDistance, 1)
+        local speed = travelDistance / desiredSeconds
+
+        for _, part in ipairs(car:GetDescendants()) do
+            if part:IsA("BasePart") then part.Anchored = false end
+        end
+
+        performDriveMaintenance()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+
+        local lastMaintenanceCheck, MAINTENANCE_INTERVAL = tick(), 2
+        local lastStep = tick()
+        local reached = false
+        local currentPos = lineStart
+
+        while true do
+            if tick() - lastMaintenanceCheck > MAINTENANCE_INTERVAL then
+                lastMaintenanceCheck = tick()
+                performDriveMaintenance()
+            end
+
+            local now = tick()
+            local dt = now - lastStep
+            lastStep = now
+
+            local carCFrame = car:GetPivot()
+            local toEnd = lineEnd - currentPos
+            local flatToEnd = Vector3.new(toEnd.X, 0, toEnd.Z)
+            local distanceToEnd = flatToEnd.Magnitude
+
+            if distanceToEnd <= arriveDistance then
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+
+                local finalCFrame = CFrame.new(currentPos, currentPos + lineDir)
+                local finalOffset = carCFrame:ToObjectSpace(hrp.CFrame)
+                car:PivotTo(finalCFrame)
+                hrp.CFrame = finalCFrame * finalOffset
+
+                for _, part in ipairs(car:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                        part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    end
+                end
+
+                engageHandbrake()
+                reached = true
+                break
+            end
+
+            local offset = carCFrame:ToObjectSpace(hrp.CFrame)
+            local moveDistance = math.min(speed * dt, distanceToEnd)
+            currentPos = currentPos + lineDir * moveDistance
+            local newCFrame = CFrame.new(currentPos, currentPos + lineDir)
+
+            car:PivotTo(newCFrame)
+            hrp.CFrame = newCFrame * offset
+
+            local travelVelocity = lineDir * speed
+            for _, part in ipairs(car:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.AssemblyLinearVelocity = travelVelocity
+                    part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                end
+            end
+
+            task.wait()
+        end
+
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+        return reached
+    end
+
+    --======================================================
+    -- CORE LOOKUPS
+    --======================================================
+    local function waitForChildSafe(parent, name, timeout)
+        if not parent then return nil end
+        local object = parent:FindFirstChild(name)
+        if object then return object end
+        local start = tick()
+        while tick() - start < timeout do
+            object = parent:FindFirstChild(name)
+            if object then return object end
+            task.wait(0.25)
+        end
+        return nil
+    end
+
+    local function getBCA()
+        return waitForChildSafe(workspace, "MY_BCA_COLLAB", 10)
+    end
+
+    local function findPrompt(object)
+        if not object then return nil end
+        return object:FindFirstChildWhichIsA("ProximityPrompt", true)
+    end
+
+    local function interactObject(object)
+        local prompt = findPrompt(object)
+        if not prompt then return false end
+        fireproximityprompt(prompt)
+        return true
+    end
+
+    local function touchOnce()
+        local camera = workspace.CurrentCamera
+        if not camera then return false end
+        local viewport = camera.ViewportSize
+        local x, y = viewport.X * 0.5, viewport.Y * 0.885
+        VirtualInputManager:SendTouchEvent(0, Enum.UserInputState.Begin.Value, x, y)
+        task.wait(0.1)
+        VirtualInputManager:SendTouchEvent(0, Enum.UserInputState.End.Value, x, y)
+        return true
+    end
+
+    local function getNpcDialogRemote()
+        local network = rp:FindFirstChild("NetworkContainer")
+        local remoteEvents = network and network:FindFirstChild("RemoteEvents")
+        return remoteEvents and remoteEvents:FindFirstChild("NpcDialog")
+    end
+
+    local function getBankCourierRemote()
+        local network = rp:FindFirstChild("NetworkContainer")
+        local remoteEvents = network and network:FindFirstChild("RemoteEvents")
+        return remoteEvents and remoteEvents:FindFirstChild("BankCourier")
+    end
+
+    local function isActuallyVisible(guiObject)
+        if not guiObject.Visible then return false end
+        local parent = guiObject.Parent
+        while parent do
+            if parent:IsA("GuiObject") then
+                if not parent.Visible then return false end
+            elseif parent:IsA("ScreenGui") then
+                if not parent.Enabled then return false end
+            end
+            parent = parent.Parent
+        end
+        return true
+    end
+
+    local function isNpcDialogVisible()
+        local pg = player:FindFirstChild("PlayerGui")
+        if not pg then return false end
+        local npcDialogGui = pg:FindFirstChild("NpcDialog")
+        if not npcDialogGui then return false end
+        local textShadow = npcDialogGui:FindFirstChild("TextShadow", true)
+        if not textShadow then return false end
+        if textShadow:IsA("GuiObject") then return textShadow.Visible end
+        return false
+    end
+
+    -- NpcDialog "Finish" detector — hook game.__namecall sekali per sesi BCA
+    -- (dipasang di awal BcaBrain.run(), bukan di top-level module, biar mode
+    -- lain yang gak pakai BCA gak ikut kena overhead hook ini).
+    local bcaFinishDetected = false
+    local bcaFinishDetectorInstalled = false
+
+    local function installBcaFinishDetector()
+        if bcaFinishDetectorInstalled then return end
+        local npcDialog = getNpcDialogRemote()
+        if not npcDialog or not hookmetamethod then return end
+
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            if method == "FireServer" and self == npcDialog then
+                local args = { ... }
+                if args[1] == "Finish" then
+                    bcaFinishDetected = true
+                end
+            end
+            return oldNamecall(self, ...)
+        end))
+
+        bcaFinishDetectorInstalled = true
+    end
+
+    --======================================================
+    -- ATM / JOB HELPERS
+    --======================================================
+    local function atmGetInstanceCFrame(inst)
+        if not inst then return nil end
+        if inst:IsA("BasePart") then return inst.CFrame
+        elseif inst:IsA("Model") then return inst:GetPivot()
+        elseif inst:IsA("Attachment") then return CFrame.new(inst.WorldPosition) end
+        return nil
+    end
+
+    local function atmTeleportPlayerTo(inst, zOffset)
+        local cframe = atmGetInstanceCFrame(inst)
+        if not cframe then return false end
+        local _, hrp = getCharacter()
+        hrp.CFrame = cframe * CFrame.new(0, 0, zOffset)
+        return true
+    end
+
+    local atmClosestATM  = nil
+    local hasEnteredFloor = false
+
+    local function atmGetBagasiPoint()
+        local vehicles = workspace:FindFirstChild("Vehicles")
+        local car = vehicles and vehicles:FindFirstChild(player.Name .. "sCar")
+        return car and car:FindFirstChild("BagasiPoint")
+    end
+
+    local function atmGetDestinationCFrame()
+        local route = workspace:FindFirstChild("BankCourierRoute")
+        local destination = route and route:FindFirstChild("To")
+        return destination and destination.CFrame
+    end
+
+    local function atmFindClosestATM(destinationPosition)
+        local bca = workspace:FindFirstChild("MY_BCA_COLLAB")
+        local job = bca and bca:FindFirstChild("Job")
+        local bankCourier = job and job:FindFirstChild("BankCourier")
+        local atms = bankCourier and bankCourier:FindFirstChild("ATMs")
+        if not atms then return nil end
+
+        local closestATM, closestDistance = nil, math.huge
+        for i = 1, 10 do
+            local atm = atms:FindFirstChild("ATM" .. tostring(i))
+            if atm then
+                local atmCFrame = atmGetInstanceCFrame(atm)
+                if atmCFrame then
+                    local distance = (atmCFrame.Position - destinationPosition).Magnitude
+                    if distance < closestDistance then
+                        closestDistance = distance
+                        closestATM = atm
+                    end
+                end
+            end
+        end
+        return closestATM
+    end
+
+    local function atmGetStatusLabel()
+        local pg = player:WaitForChild("PlayerGui")
+        local jobGui = waitForChildSafe(pg, "Job", 10)
+        local bankCourierGui = jobGui and waitForChildSafe(jobGui, "BankCourier", 10)
+        local statusGui = bankCourierGui and waitForChildSafe(bankCourierGui, "Status", 10)
+        return statusGui and waitForChildSafe(statusGui, "Atm", 10)
+    end
+
+    local function atmGetProgress()
+        local label = atmGetStatusLabel()
+        if not label then return nil, nil, nil end
+        local text = tostring(label.Text)
+        local current, total = text:match("ATM terisi:%s*(%d+)%s*/%s*(%d+)")
+        if not current or not total then return nil, nil, text end
+        return tonumber(current), tonumber(total), text
+    end
+
+    local function atmGetBankCourierGui()
+        local pg = player:WaitForChild("PlayerGui")
+        local jobGui = waitForChildSafe(pg, "Job", 10)
+        return jobGui and waitForChildSafe(jobGui, "BankCourier", 10)
+    end
+
+    local function atmNormalizeAngle(angle)
+        angle = angle % 360
+        if angle < 0 then angle = angle + 360 end
+        return angle
+    end
+
+    local function atmAngleDifference(a, b)
+        local diff = math.abs(atmNormalizeAngle(a) - atmNormalizeAngle(b))
+        return math.min(diff, 360 - diff)
+    end
+
+    local function atmCircularMidpoint(a, b)
+        a = math.rad(atmNormalizeAngle(a))
+        b = math.rad(atmNormalizeAngle(b))
+        local x, y = math.cos(a) + math.cos(b), math.sin(a) + math.sin(b)
+        if math.abs(x) < 0.000001 and math.abs(y) < 0.000001 then
+            return atmNormalizeAngle(math.deg(a))
+        end
+        return atmNormalizeAngle(math.deg(math.atan2(y, x)))
+    end
+
+    local function atmRunGreatGapMinigame(beforeCurrent, bankCourierRemote)
+        local bankCourierGui = atmGetBankCourierGui()
+        if not bankCourierGui then blog("[12] BankCourier GUI tidak ditemukan!"); return false end
+
+        local skill = waitForChildSafe(bankCourierGui, "Skill", 10)
+        if not skill then blog("[12] Skill GUI tidak ditemukan!"); return false end
+
+        local count = waitForChildSafe(skill, "Count", 5)
+        local needleArm = waitForChildSafe(skill, "NeedleArm", 5)
+        if not needleArm then blog("[12] NeedleArm tidak ditemukan!"); return false end
+        local tip = waitForChildSafe(needleArm, "Tip", 5)
+        if not tip then blog("[12] Tip tidak ditemukan!"); return false end
+        local greatArc = waitForChildSafe(skill, "GreatArc", 5)
+        if not greatArc then blog("[12] GreatArc tidak ditemukan!"); return false end
+        local leftHalf  = waitForChildSafe(greatArc, "LeftHalf", 5)
+        local rightHalf = waitForChildSafe(greatArc, "RightHalf", 5)
+        if not leftHalf or not rightHalf then blog("[12] GreatArc Half tidak ditemukan!"); return false end
+
+        local TARGET_TOLERANCE = 5
+        local wasInsideTarget = false
+        local minigameStart = tick()
+
+        while tick() - minigameStart < 30 do
+            local nowCurrent, nowTotal = atmGetProgress()
+            if nowCurrent and nowTotal and nowCurrent > beforeCurrent then
+                return true
+            end
+
+            if not skill.Visible then
+                wasInsideTarget = false
+                task.wait(0.01)
+            elseif count and count.Visible then
+                wasInsideTarget = false
+                task.wait(0.03)
+            else
+                local tipRotation    = atmNormalizeAngle(tip.AbsoluteRotation)
+                local leftRotation   = atmNormalizeAngle(leftHalf.AbsoluteRotation)
+                local rightRotation  = atmNormalizeAngle(rightHalf.AbsoluteRotation)
+                local targetCenter   = atmCircularMidpoint(leftRotation, rightRotation)
+                local targetDifference = atmAngleDifference(tipRotation, targetCenter)
+                local inTarget = targetDifference <= TARGET_TOLERANCE
+
+                if inTarget then
+                    if not wasInsideTarget then
+                        wasInsideTarget = true
+                        task.wait(0.01)
+                        bankCourierRemote:FireServer("SkillPress", tip.AbsoluteRotation)
+                    end
+                else
+                    wasInsideTarget = false
+                end
+
+                task.wait()
+            end
+        end
+
+        return false
+    end
+
+    --======================================================
+    -- STEP 1-12
+    --======================================================
+    local startPosition = Vector3.new(1805.003, 24.283, -4632.021)
+    local carSpawnPosition = Vector3.new(1873.906, 23.369, -4887.753)
+    local wrapTravelTimeSeconds = 65
+
+    local function runStep1()
+        local character, hrp = getCharacter()
+        local wasAnchored = hrp.Anchored
+        hrp.Anchored = true
+        hrp.CFrame = CFrame.new(startPosition + Vector3.new(0, 50, 0))
+        task.wait(2)
+        hrp.CFrame = CFrame.new(startPosition)
+        task.wait(0.3)
+        hrp.Anchored = wasAnchored
+        return true
+    end
+
+    local function npcDialogRound(roundLabel)
+        bcaFinishDetected = false
+
+        local bca = getBCA()
+        if not bca then blog("[2] BCA belum siap!"); return false end
+
+        local npc = waitForChildSafe(bca, "NPC_START_JOB", 10)
+        if not npc then blog("[2] NPC_START_JOB tidak ditemukan!"); return false end
+
+        if not interactObject(npc) then blog("[2] Prompt NPC tidak ditemukan!"); return false end
+
+        task.wait(1)
+
+        local hasBeenVisible = false
+        local clickCount, maxClicks = 0, 100
+
+        while clickCount < maxClicks do
+            local finishDetected = bcaFinishDetected
+            local dialogVisible = isNpcDialogVisible()
+            if dialogVisible then hasBeenVisible = true end
+
+            if finishDetected and hasBeenVisible and not dialogVisible then
+                break
+            end
+
+            clickCount = clickCount + 1
+            touchOnce()
+
+            local waitStart = tick()
+            while tick() - waitStart < 0.2 do
+                local currentFinish = bcaFinishDetected
+                local currentVisible = isNpcDialogVisible()
+                if currentVisible then hasBeenVisible = true end
+                if currentFinish and hasBeenVisible and not currentVisible then break end
+                task.wait(0.05)
+            end
+        end
+
+        local finalFinish  = bcaFinishDetected
+        local finalVisible = isNpcDialogVisible()
+        local success = finalFinish and hasBeenVisible and not finalVisible
+
+        if not success then blog("[2] Dialog (" .. roundLabel .. ") gagal diverifikasi selesai") end
+
+        return success
+    end
+
+    local function runStep2()
+        -- NPC-nya butuh diajak ngobrol 2 ronde sebelum Car Spawner kebuka.
+        if not npcDialogRound("1/2") then return false end
+        task.wait(1)
+        if not npcDialogRound("2/2") then return false end
+        return true
+    end
+
+    local function runStep3()
+        bcaFinishDetected = false
+
+        local bca = getBCA()
+        if not bca then blog("[3] BCA belum siap!"); return false end
+
+        local carSpawner = waitForChildSafe(bca, "CAR_SPAWNER_NPC", 10)
+        if not carSpawner then blog("[3] CAR_SPAWNER_NPC tidak ditemukan!"); return false end
+
+        local character, hrp = getCharacter()
+        hrp.CFrame = CFrame.new(carSpawnPosition)
+        task.wait(1)
+
+        if not interactObject(carSpawner) then blog("[3] Prompt Car Spawner tidak ditemukan!"); return false end
+
+        task.wait(1)
+
+        local clickCount, maxClicks = 0, 100
+        while clickCount < maxClicks do
+            local finishDetected = bcaFinishDetected
+            local dialogVisible = isNpcDialogVisible()
+            if finishDetected and not dialogVisible then break end
+
+            clickCount = clickCount + 1
+            touchOnce()
+
+            local waitStart = tick()
+            while tick() - waitStart < 0.2 do
+                local currentFinish = bcaFinishDetected
+                local currentVisible = isNpcDialogVisible()
+                if currentFinish and not currentVisible then break end
+                task.wait(0.05)
+            end
+        end
+
+        local finalFinish = bcaFinishDetected
+        local finalDialogVisible = isNpcDialogVisible()
+        local success = finalFinish and not finalDialogVisible
+        if not success then blog("[3] Dialog Car Spawner gagal diverifikasi selesai") end
+        return success
+    end
+
+    local function runStep4()
+        local character, hrp = getCharacter()
+        hrp.CFrame = CFrame.new(carSpawnPosition)
+        task.wait(1)
+
+        local vehicles = waitForChildSafe(workspace, "Vehicles", 10)
+        if not vehicles then blog("[4] Vehicles tidak ditemukan!"); return false end
+
+        local carName = player.Name .. "sCar"
+        local bankCourierRemote = getBankCourierRemote()
+        if not bankCourierRemote then blog("[4] BankCourier tidak ditemukan!"); return false end
+
+        bankCourierRemote:FireServer("RespawnCar")
+
+        local car = nil
+        local startTime = tick()
+        while tick() - startTime < 30 do
+            car = vehicles:FindFirstChild(carName)
+            if car then break end
+            task.wait(0.25)
+        end
+
+        if not car then blog("[4] " .. carName .. " tidak muncul!"); return false end
+        return true
+    end
+
+    local function runStep5()
+        local pg = player:WaitForChild("PlayerGui")
+        local jobGui = waitForChildSafe(pg, "Job", 10)
+        if not jobGui then blog("[5] Job GUI tidak ditemukan!"); return false end
+
+        local bankCourierGui = waitForChildSafe(jobGui, "BankCourier", 10)
+        if not bankCourierGui then blog("[5] BankCourier tidak ditemukan!"); return false end
+
+        local statusGui = waitForChildSafe(bankCourierGui, "Status", 10)
+        if not statusGui then blog("[5] Status tidak ditemukan!"); return false end
+
+        local koperStatus = waitForChildSafe(statusGui, "Koper", 10)
+        if not koperStatus then blog("[5] Status.Koper tidak ditemukan!"); return false end
+
+        local function getKoperProgress()
+            local text = tostring(koperStatus.Text)
+            local current, total = text:match("Koper di mobil:%s*(%d+)%s*/%s*(%d+)")
+            if not current or not total then return nil, nil, text end
+            return tonumber(current), tonumber(total), text
+        end
+
+        local bca = getBCA()
+        if not bca then blog("[5] BCA belum siap!"); return false end
+
+        local job = waitForChildSafe(bca, "Job", 10)
+        if not job then blog("[5] Job BCA tidak ditemukan!"); return false end
+
+        local bankCourierJob = waitForChildSafe(job, "BankCourier", 10)
+        if not bankCourierJob then blog("[5] BankCourier Job tidak ditemukan!"); return false end
+
+        local koperSpawn = waitForChildSafe(bankCourierJob, "KoperSpawn", 10)
+        if not koperSpawn then blog("[5] KoperSpawn tidak ditemukan!"); return false end
+
+        local koperPart = waitForChildSafe(koperSpawn, "Part", 10)
+        if not koperPart then blog("[5] Part koper tidak ditemukan!"); return false end
+
+        local koperPrompt = koperPart:FindFirstChild("Prompt")
+            or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if not koperPrompt then blog("[5] Prompt koper tidak ditemukan!"); return false end
+
+        local bankCourierRemote = getBankCourierRemote()
+        if not bankCourierRemote then blog("[5] BankCourier Remote tidak ditemukan!"); return false end
+
+        local vehicles = waitForChildSafe(workspace, "Vehicles", 10)
+        if not vehicles then blog("[5] Vehicles tidak ditemukan!"); return false end
+
+        local carName = player.Name .. "sCar"
+        local car = vehicles:FindFirstChild(carName)
+        if not car then blog("[5] Vehicle belum spawn!"); return false end
+
+        local bagasiPoint = nil
+        local bagasiStart = tick()
+        while tick() - bagasiStart < 15 do
+            car = vehicles:FindFirstChild(carName)
+            if car then bagasiPoint = car:FindFirstChild("BagasiPoint", true) end
+            if bagasiPoint then break end
+            task.wait(0.25)
+        end
+        if not bagasiPoint then blog("[5] BagasiPoint tidak ditemukan!"); return false end
+
+        local usedKopers = {}
+
+        local function getAllKopers()
+            local result = {}
+            for _, obj in ipairs(koperSpawn:GetChildren()) do
+                if obj.Name:match("^Koper%d+$") then table.insert(result, obj) end
+            end
+            table.sort(result, function(a, b)
+                local aNumber = tonumber(a.Name:match("%d+")) or 0
+                local bNumber = tonumber(b.Name:match("%d+")) or 0
+                return aNumber < bNumber
+            end)
+            return result
+        end
+
+        local function isKoperAvailable(koper)
+            if not koper or not koper.Parent then return false end
+            local basePart = koper:IsA("BasePart") and koper or koper:FindFirstChildWhichIsA("BasePart", true)
+            return basePart ~= nil
+        end
+
+        local function findNextKoper()
+            local kopers = getAllKopers()
+            for _, koper in ipairs(kopers) do
+                if not usedKopers[koper] and isKoperAvailable(koper) then return koper end
+            end
+            -- Semua object udah kepakai tapi masih butuh lebih banyak koper
+            -- dari jumlah instance yang ada — reset dan pakai ulang.
+            if #kopers > 0 then
+                usedKopers = {}
+                for _, koper in ipairs(kopers) do
+                    if isKoperAvailable(koper) then return koper end
+                end
+            end
+            return nil
+        end
+
+        -- Prompt yang beneran di-fire tiap putaran selalu di koperPart
+        -- ("Part") — satu titik tetap, bukan prompt per-instance koper.
+        local function teleportToKoper()
+            local _, root = getCharacter()
+            root.CFrame = koperPart.CFrame * CFrame.new(0, 0, -3)
+            return true
+        end
+
+        local function teleportToBagasi()
+            local _, root = getCharacter()
+            if bagasiPoint:IsA("BasePart") then
+                root.CFrame = bagasiPoint.CFrame * CFrame.new(0, 0, -2)
+            elseif bagasiPoint:IsA("Model") then
+                root.CFrame = bagasiPoint:GetPivot() * CFrame.new(0, 0, -2)
+            elseif bagasiPoint:IsA("Attachment") then
+                root.CFrame = CFrame.new(bagasiPoint.WorldPosition)
+            end
+            return true
+        end
+
+        local function getMinigame()
+            local timing = bankCourierGui:FindFirstChild("Timing")
+            if not timing then return nil end
+            local track, trunk = timing:FindFirstChild("Track"), timing:FindFirstChild("Trunk")
+            if not track or not trunk then return nil end
+            local koper, slot = track:FindFirstChild("Koper"), trunk:FindFirstChild("Slot")
+            if not koper or not slot then return nil end
+            return timing, track, koper, trunk, slot
+        end
+
+        local function waitForMinigame()
+            local start = tick()
+            while tick() - start < 10 do
+                local timing, track, koper, trunk, slot = getMinigame()
+                if koper and slot and isActuallyVisible(koper) and isActuallyVisible(slot) then
+                    return timing, track, koper, trunk, slot
+                end
+                task.wait(0.05)
+            end
+            return nil
+        end
+
+        -- Sliding minigame: koper icon digeser server, LoadPress ditembak
+        -- begitu titik tengahnya masuk rentang slot bagasi.
+        local function loadOneKoper(beforeCurrent)
+            teleportToBagasi()
+            task.wait(0.5)
+
+            local muatPrompt = bagasiPoint:FindFirstChild("MuatPrompt", true)
+            if not muatPrompt or not muatPrompt:IsA("ProximityPrompt") then
+                blog("[5] MuatPrompt tidak ditemukan!")
+                return false
+            end
+
+            fireproximityprompt(muatPrompt)
+
+            local timing, track, koper, trunk, slot = waitForMinigame()
+            if not koper or not slot then blog("[5] Minigame tidak muncul!"); return false end
+
+            task.wait(0.2)
+
+            local locked = false
+            local connection
+
+            local function scanPosition()
+                if locked then return true end
+                if not koper.Parent or not slot.Parent then return false end
+
+                local koperPosition = koper.Position
+                local koperLeft = track.AbsolutePosition.X + (koperPosition.X.Scale * track.AbsoluteSize.X) + koperPosition.X.Offset
+                local koperCenter = koperLeft + (koper.AbsoluteSize.X / 2)
+
+                local slotPosition = slot.Position
+                local slotLeft = trunk.AbsolutePosition.X + (slotPosition.X.Scale * trunk.AbsoluteSize.X) + slotPosition.X.Offset
+                local slotRight = slotLeft + slot.AbsoluteSize.X
+
+                if koperCenter >= slotLeft and koperCenter <= slotRight then
+                    locked = true
+                    task.wait(0.05)
+                    bankCourierRemote:FireServer("LoadPress")
+                    return true
+                end
+                return false
+            end
+
+            connection = koper:GetPropertyChangedSignal("Position"):Connect(function()
+                if not locked then pcall(scanPosition) end
+            end)
+
+            local scanStart = tick()
+            while not locked and tick() - scanStart < 30 do
+                pcall(scanPosition)
+                task.wait(0.01)
+            end
+
+            if connection then connection:Disconnect(); connection = nil end
+
+            if not locked then blog("[5] Minigame gagal!"); return false end
+
+            local counterStart = tick()
+            while tick() - counterStart < 10 do
+                local nowCurrent, nowTotal = getKoperProgress()
+                if nowCurrent and nowTotal and nowCurrent > beforeCurrent then return true end
+                task.wait(0.05)
+            end
+
+            blog("[5] Counter koper tidak berubah!")
+            return false
+        end
+
+        while true do
+            local current, total = getKoperProgress()
+            if not current or not total then blog("[5] Tidak bisa membaca jumlah koper!"); break end
+            if current >= total then break end
+
+            local koper = findNextKoper()
+            if not koper then
+                local waitStart = tick()
+                while tick() - waitStart < 15 do
+                    koper = findNextKoper()
+                    if koper then break end
+                    task.wait(0.25)
+                end
+            end
+            if not koper then blog("[5] Koper berikutnya tidak ditemukan!"); break end
+
+            usedKopers[koper] = true
+
+            if not teleportToKoper() then blog("[5] Gagal teleport ke koper!"); break end
+
+            task.wait(0.8)
+            fireproximityprompt(koperPrompt)
+            task.wait(1)
+
+            if not loadOneKoper(current) then blog("[5] Gagal load koper!"); break end
+
+            task.wait(0.5)
+        end
+
+        local finalCurrent, finalTotal = getKoperProgress()
+        if finalCurrent and finalTotal then
+            return finalCurrent >= finalTotal
+        end
+        return false
+    end
+
+    local function runStep6()
+        local function isInCar()
+            local pg = player:WaitForChild("PlayerGui")
+            return pg:FindFirstChild("A-Chassis Interface") ~= nil
+        end
+
+        if isInCar() then return true end
+
+        local vehicles = workspace:FindFirstChild("Vehicles")
+        if not vehicles then blog("[6] Vehicles tidak ditemukan!"); return false end
+
+        local carName = player.Name .. "sCar"
+        local car = vehicles:FindFirstChild(carName)
+        if not car then blog("[6] " .. carName .. " belum ditemukan!"); return false end
+
+        local body = car:FindFirstChild("Body")
+        if not body then blog("[6] Body mobil tidak ditemukan!"); return false end
+
+        local rm = body:FindFirstChild("RM")
+        if not rm then blog("[6] RM pintu driver tidak ditemukan!"); return false end
+
+        local function getRoot()
+            local character = player.Character or player.CharacterAdded:Wait()
+            return character:WaitForChild("HumanoidRootPart")
+        end
+
+        local rmCFrame = rm:IsA("BasePart") and rm.CFrame or (rm:IsA("Model") and rm:GetPivot())
+        if not rmCFrame then blog("[6] CFrame RM tidak ditemukan!"); return false end
+
+        local root = getRoot()
+        root.CFrame = rmCFrame * CFrame.new(0, 0, -2)
+        task.wait(0.5)
+
+        local drivePrompt = nil
+        for _, obj in ipairs(rm:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and (obj.ActionText == "Drive" or obj.ObjectText == "Drive") then
+                drivePrompt = obj
+                break
+            end
+        end
+        if not drivePrompt then
+            for _, obj in ipairs(rm:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") and obj.Enabled then drivePrompt = obj; break end
+            end
+        end
+        if not drivePrompt then
+            local rmPosition = rm:IsA("BasePart") and rm.Position or (rm:IsA("Model") and rm:GetPivot().Position)
+            if rmPosition then
+                local closestDistance = 10
+                for _, obj in ipairs(workspace:GetDescendants()) do
+                    if obj:IsA("ProximityPrompt") and obj.Enabled then
+                        local parent = obj.Parent
+                        if parent and parent:IsA("BasePart") then
+                            local distance = (parent.Position - rmPosition).Magnitude
+                            if distance < closestDistance then
+                                closestDistance = distance
+                                drivePrompt = obj
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if not drivePrompt then blog("[6] Drive Prompt tidak ditemukan!"); return false end
+
+        for attempt = 1, 5 do
+            if isInCar() then return true end
+
+            root = getRoot()
+            root.CFrame = rmCFrame * CFrame.new(0, 0, -2)
+            task.wait(0.25)
+
+            if drivePrompt and drivePrompt.Parent and drivePrompt.Enabled then
+                fireproximityprompt(drivePrompt)
+            else
+                for _, obj in ipairs(rm:GetDescendants()) do
+                    if obj:IsA("ProximityPrompt") and obj.Enabled then drivePrompt = obj; break end
+                end
+                if drivePrompt then fireproximityprompt(drivePrompt) end
+            end
+
+            local start = tick()
+            while tick() - start < 2 do
+                if isInCar() then return true end
+                task.wait(0.1)
+            end
+        end
+
+        if isInCar() then return true end
+        blog("[6] Gagal naik mobil!")
+        return false
+    end
+
+    local function runStep7()
+        local route = workspace:FindFirstChild("BankCourierRoute")
+        if not route then blog("[7] BankCourierRoute tidak ditemukan!"); return false end
+
+        local destination = route:FindFirstChild("To")
+        if not destination then blog("[7] Route.To tidak ditemukan!"); return false end
+
+        local destinationPosition = destination.CFrame.Position
+
+        local closestATM = atmFindClosestATM(destinationPosition)
+        if not closestATM then blog("[7] Tidak menemukan ATM!"); return false end
+
+        local atmCFrame = atmGetInstanceCFrame(closestATM)
+        if not atmCFrame then blog("[7] CFrame ATM tidak ditemukan!"); return false end
+
+        task.wait(0.5)
+
+        -- Lantai kotak sejajar tanah: teleport instan ke titik entry (atau
+        -- geser 50 stud dari posisi mobil sekarang kalau udah pernah masuk
+        -- lantai sebelumnya), lalu ditarik (wrap timed) lurus ke titik
+        -- sejajar ATM tujuan — begitu masuk radius arrive, mobil berhenti
+        -- di situ juga (ga ada lagi teleport naik/turun ke papan parkir).
+        if bcaFloorEntryPoint and bcaFloorY then
+            local ATM_FLOOR_ARRIVE_DISTANCE = 35
+            local floorTargetPoint = Vector3.new(atmCFrame.Position.X, bcaFloorY + 1, atmCFrame.Position.Z)
+            local driveLineStart = bcaFloorEntryPoint
+
+            if not hasEnteredFloor then
+                teleportToStraightRoad(bcaFloorEntryPoint, floorTargetPoint)
+                hasEnteredFloor = true
+            else
+                local vehicles = workspace:FindFirstChild("Vehicles")
+                local car = vehicles and vehicles:FindFirstChild(player.Name .. "sCar")
+                local currentCarPos = car and car:GetPivot().Position
+
+                if currentCarPos then
+                    driveLineStart = currentCarPos
+                    local mainDir = floorTargetPoint - currentCarPos
+                    if mainDir.Magnitude > 0.001 then
+                        mainDir = mainDir.Unit
+                        local rightDir = Vector3.new(mainDir.Z, 0, -mainDir.X)
+                        local SLIDE_DISTANCE, SLIDE_DURATION, SLIDE_ARRIVE_DISTANCE = 50, 1.5, 3
+                        local slidePoint = currentCarPos + rightDir * SLIDE_DISTANCE
+                        wrapDriveTimedTo(currentCarPos, slidePoint, SLIDE_DURATION, SLIDE_ARRIVE_DISTANCE)
+                        driveLineStart = slidePoint
+                    end
+                else
+                    teleportToStraightRoad(bcaFloorEntryPoint, floorTargetPoint)
+                    driveLineStart = bcaFloorEntryPoint
+                end
+            end
+
+            wrapDriveTimedTo(driveLineStart, floorTargetPoint, wrapTravelTimeSeconds, ATM_FLOOR_ARRIVE_DISTANCE)
+        end
+
+        return true
+    end
+
+    local function runStep8()
+        local function isInCar()
+            local pg = player:WaitForChild("PlayerGui")
+            return pg:FindFirstChild("A-Chassis Interface") ~= nil
+        end
+
+        if not isInCar() then return true end
+
+        local character = player.Character or player.CharacterAdded:Wait()
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+        for _ = 1, 10 do
+            if not isInCar() then return true end
+
+            if not humanoid then
+                character = player.Character or player.CharacterAdded:Wait()
+                humanoid = character:FindFirstChildOfClass("Humanoid")
+            end
+
+            local seat = humanoid and humanoid.SeatPart
+            if humanoid then humanoid.Jump = true; humanoid.Sit = false end
+
+            task.wait(0.3)
+            if not isInCar() then return true end
+
+            if seat and seat:IsA("VehicleSeat") then
+                seat.Disabled = true
+                task.wait(0.2)
+                seat.Disabled = false
+            end
+
+            task.wait(0.3)
+        end
+
+        if isInCar() then blog("[8] Gagal keluar mobil!"); return false end
+        return true
+    end
+
+    local function runStep9()
+        local bagasiPoint = atmGetBagasiPoint()
+        if not bagasiPoint then blog("[9] BagasiPoint tidak ditemukan!"); return false end
+        atmTeleportPlayerTo(bagasiPoint, -2)
+        return true
+    end
+
+    local function runStep10()
+        local bagasiPoint = atmGetBagasiPoint()
+        if not bagasiPoint then blog("[10] BagasiPoint tidak ditemukan!"); return false end
+
+        local ambilPrompt = bagasiPoint:FindFirstChild("AmbilPrompt")
+        if not ambilPrompt then blog("[10] AmbilPrompt tidak ditemukan!"); return false end
+
+        -- AmbilPrompt bertipe Hold — simulasikan tahan penuh HoldDuration.
+        ambilPrompt:InputHoldBegin()
+        task.wait(ambilPrompt.HoldDuration + 0.3)
+        ambilPrompt:InputHoldEnd()
+
+        return true
+    end
+
+    local function runStep11()
+        local destinationCFrame = atmGetDestinationCFrame()
+        if not destinationCFrame then blog("[11] Route.To tidak ditemukan!"); return false end
+
+        local closestATM = atmFindClosestATM(destinationCFrame.Position)
+        if not closestATM then blog("[11] Tidak menemukan ATM!"); return false end
+
+        atmClosestATM = closestATM
+
+        local atmScreen = closestATM:FindFirstChild("Screen_ATM_01", true)
+        if not atmScreen then blog("[11] Screen_ATM_01 tidak ditemukan!"); return false end
+
+        atmTeleportPlayerTo(atmScreen, -2)
+        return true
+    end
+
+    local function runStep12()
+        if not atmClosestATM then blog("[12] Belum ada ATM tujuan!"); return false end
+
+        local beforeCurrent = atmGetProgress()
+        if not beforeCurrent then blog("[12] Tidak bisa membaca progress ATM!"); return false end
+
+        local bankCourierRemote = getBankCourierRemote()
+        if not bankCourierRemote then blog("[12] BankCourier Remote tidak ditemukan!"); return false end
+
+        -- Buka ATM: bukan ProximityPrompt, langsung FireServer "FillStart".
+        bankCourierRemote:FireServer("FillStart")
+
+        local success = atmRunGreatGapMinigame(beforeCurrent, bankCourierRemote)
+        if not success then blog("[12] Minigame gagal / timeout!") end
+        return success
+    end
+
+    -- Step 1-5 sekali (ngobrol NPC, spawn mobil, load semua koper ke
+    -- bagasi). Step 6-12 diulang PER KOPER (naik mobil, antar ke ATM
+    -- tujuan koper itu, keluar mobil, ambil koper, setor) sampai semua
+    -- koper terkirim, baru balik ke Step 1 (ngobrol NPC lagi = job baru).
+    local function runFullCycle()
+        if not runStep1() then return false end
+        task.wait(0.5)
+        if not runStep2() then return false end
+        task.wait(0.5)
+        if not runStep3() then return false end
+        task.wait(0.5)
+        if not runStep4() then return false end
+        task.wait(0.5)
+        if not runStep5() then return false end
+        task.wait(0.5)
+
+        while true do
+            local current, total = atmGetProgress()
+            if not current or not total then blog("Gagal baca progress ATM!"); return false end
+            if current >= total then
+                blog("Semua koper terkirim (" .. current .. "/" .. total .. ")! Kembali ke NPC...")
+                break
+            end
+
+            if not runStep6() then return false end
+            task.wait(0.5)
+            if not runStep7() then return false end
+            task.wait(0.5)
+            if not runStep8() then return false end
+            task.wait(0.5)
+            if not runStep9() then return false end
+            task.wait(0.5)
+            if not runStep10() then return false end
+            task.wait(0.5)
+            if not runStep11() then return false end
+            task.wait(0.5)
+            if not runStep12() then return false end
+            task.wait(0.5)
+        end
+
+        return true
+    end
+
+    --======================================================
+    -- SALDO MYBCA (dibaca dari GUI phone in-game, gak ada
+    -- RemoteFunction yang expose raw data)
+    --======================================================
+    local function getSaldoAccumulatedLabel()
+        local playerGui = player.PlayerGui
+        local phoneGui  = playerGui:FindFirstChild("ACTUAL NEW PHONE")
+        local container = phoneGui and phoneGui:FindFirstChild("Container")
+        local holder    = container and container:FindFirstChild("Holder")
+        local appContainer = holder and holder:FindFirstChild("AppContainer")
+        local myBca     = appContainer and appContainer:FindFirstChild("MyBca")
+        local poketRupiah = myBca and myBca:FindFirstChild("PoketRupiah")
+        local pocketList  = poketRupiah and poketRupiah:FindFirstChild("PocketList")
+        local balanceFrame = pocketList and pocketList:FindFirstChild("BalanceFrame")
+        return balanceFrame and balanceFrame:FindFirstChild("Accumulated")
+    end
+
+    function BcaBrain.getSaldo()
+        local label = getSaldoAccumulatedLabel()
+        if not label then return 0 end
+        local digits = (tostring(label.Text):gsub("%D", ""))
+        if digits == "" then return 0 end
+        return tonumber(digits) or 0
+    end
+
+    --======================================================
+    -- MAIN LOOP — auto start, gak ada tombol AUTO ON/OFF lagi (beda dari
+    -- bca.lua asli): begitu dipanggil, langsung deleteBackpack -> clear
+    -- map -> mulai siklus, diulang terus (gagal = tunggu 5s, ulangi dari
+    -- Step 1 — sama seperti master loop bca.lua asli).
+    --======================================================
+    function BcaBrain.run()
+        blog("Starting for " .. player.Name .. "...")
+
+        installBcaFinishDetector()
+
+        bcaDeleteBackpack()
+        player.ChildAdded:Connect(function(child)
+            if child.Name == "Backpack" then
+                task.wait()
+                child:Destroy()
+            end
+        end)
+
+        buildBcaLandmarkPlatforms()
+        buildBcaFloorBox()
+        bcaClearMap()
+
+        task.wait(1)
+
+        local cycleCount = 0
+        while true do
+            cycleCount = cycleCount + 1
+            blog("Mulai siklus #" .. cycleCount .. "...")
+            local success = runFullCycle()
+            if success then
+                blog("Siklus #" .. cycleCount .. " selesai! Mengulang...")
+            else
+                blog("Siklus #" .. cycleCount .. " gagal, coba lagi 5 detik lagi...")
+                task.wait(5)
+            end
+            task.wait(1)
+        end
+    end
+end
+
+local function startMyBcaEvent(deviceId)
+    log("[BCA] Starting Event BCA for " .. player.Name .. " (" .. tostring(deviceId) .. ")")
+
+    -- Hapus phone / hub
+    safeSpawn(function()
+        pcall(function()
+            local robloxGui = CoreGui:WaitForChild("RobloxGui", 10)
+            local backpack  = robloxGui and robloxGui:WaitForChild("Backpack", 10)
+            local hotbar    = backpack  and backpack:WaitForChild("Hotbar", 10)
+            if hotbar then hotbar:Destroy() end
+        end)
+    end)
+
+    -- ── Overlay GUI ──
+    pcall(function()
+        if CoreGui:FindFirstChild("SamlongBcaUI") then CoreGui.SamlongBcaUI:Destroy() end
+    end)
+
+    local evGui = Instance.new("ScreenGui")
+    evGui.Name           = "SamlongBcaUI"
+    evGui.ResetOnSpawn   = false
+    evGui.DisplayOrder   = 9999
+    evGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+    evGui.Parent         = CoreGui
+
+    local evFrame = Instance.new("Frame", evGui)
+    evFrame.Size             = UDim2.new(0, 480, 0, 220)
+    evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
+    evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
+    evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
+    evFrame.BackgroundTransparency = 0.15
+    evFrame.BorderSizePixel  = 0
+    Instance.new("UICorner", evFrame).CornerRadius = UDim.new(0, 18)
+
+    local stroke = Instance.new("UIStroke", evFrame)
+    stroke.Color     = Color3.fromRGB(245, 158, 11)
+    stroke.Thickness = 2.5
+
+    local evName = Instance.new("TextLabel", evFrame)
+    evName.Size                   = UDim2.new(1, -24, 0, 70)
+    evName.Position               = UDim2.new(0, 12, 0, 16)
+    evName.BackgroundTransparency = 1
+    evName.Font                   = Enum.Font.GothamBlack
+    evName.TextScaled             = true
+    evName.TextColor3             = Color3.fromRGB(255, 220, 60)
+    evName.TextStrokeTransparency = 0.4
+    evName.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evName.TextXAlignment         = Enum.TextXAlignment.Center
+    evName.Text                   = player.Name .. " (EVENT BCA) · " .. tostring(deviceId)
+
+    local evPoints = Instance.new("TextLabel", evFrame)
+    evPoints.Size                   = UDim2.new(1, -24, 0, 110)
+    evPoints.Position               = UDim2.new(0, 12, 0, 92)
+    evPoints.BackgroundTransparency = 1
+    evPoints.Font                   = Enum.Font.GothamBlack
+    evPoints.TextScaled             = true
+    evPoints.TextColor3             = Color3.new(1, 1, 1)
+    evPoints.TextStrokeTransparency = 0.4
+    evPoints.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evPoints.TextXAlignment         = Enum.TextXAlignment.Center
+    evPoints.Text                   = "Rp -"
+
+    -- ── Fetch saldo MyBCA ke web (poin-like, sama pola seperti mode lain) ──
+    safeSpawn(function()
+        local function formatWithCommas(digits)
+            local reversed = digits:reverse()
+            local grouped = reversed:gsub("(%d%d%d)", "%1,")
+            grouped = grouped:reverse():gsub("^,", "")
+            return grouped
+        end
+
+        local initSaldo     = BcaBrain.getSaldo()
+        local latestSaldo   = initSaldo
+        local lastValChange = os.time()
+        evPoints.Text = "Rp " .. formatWithCommas(tostring(latestSaldo))
+        log("[BCA] Saldo awal: " .. tostring(initSaldo))
+        sendInit(tostring(initSaldo))
+        apiUpdate(player.Name, initSaldo)
+
+        -- Stuck detector: saldo ga naik 10 menit → auto reconnect.
+        safeSpawn(function()
+            local STUCK_THRESHOLD = 600
+            while true do
+                task.wait(60)
+                local elapsed = os.difftime(os.time(), lastValChange)
+                if elapsed >= STUCK_THRESHOLD then
+                    log("[BCA] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastValChange = os.time()
+                    ReturnLobby()
+                end
+            end
+        end)
+
+        while true do
+            task.wait(60)
+            local cur = BcaBrain.getSaldo()
+            if cur > 0 and cur ~= latestSaldo then
+                latestSaldo   = cur
+                lastValChange = os.time()
+                log("[BCA] Saldo update: " .. tostring(cur))
+            end
+            evPoints.Text = "Rp " .. formatWithCommas(tostring(latestSaldo))
+            sendUpdate(tostring(latestSaldo))
+            safeApiUpdate(player.Name, latestSaldo)
+        end
+    end)
+
+    -- ── BCA state machine ──
+    safeSpawn(function()
+        BcaBrain.run()
+    end)
+end
+
+-- ═══════════════════════════════════
 --  MODE: DDS
 -- ═══════════════════════════════════
 local function startDDS()
@@ -2816,6 +4366,10 @@ local function resolveMode(data)
     elseif jenis == "merdeka" then
         -- Solo — each account creates and plays its own lobby, no winner/follower role.
         return "merdeka_solo"
+
+    elseif jenis == "event_bca" then
+        -- Solo — each account runs its own MyBCA bank-courier quest, no winner/follower role.
+        return "event_bca_solo"
     end
 
     return nil
@@ -2936,7 +4490,7 @@ local function onLobby()
         local joinRegion
         if jenisFix == "event" or jenisFix == "konvoi" then
             joinRegion = "Seasonal"
-        elseif jenisFix == "minigame" then
+        elseif jenisFix == "minigame" or jenisFix == "event_bca" then
             joinRegion = "Jakarta"
         elseif jenisFix == "merdeka" then
             joinRegion = "Bandung"
@@ -3057,6 +4611,9 @@ local function onIngame()
 
         elseif mode == "merdeka_solo" then
             startMerdekaEvent(data.device_id)
+
+        elseif mode == "event_bca_solo" then
+            startMyBcaEvent(data.device_id)
         end
     end)
 end
