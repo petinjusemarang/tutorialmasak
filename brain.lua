@@ -4154,6 +4154,8 @@ end
 local function startMyBcaEvent(deviceId)
     log("[BCA] Starting Event BCA for " .. player.Name .. " (" .. tostring(deviceId) .. ")")
 
+    serverLock()
+
     -- Hapus phone / hub
     safeSpawn(function()
         pcall(function()
