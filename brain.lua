@@ -4187,7 +4187,7 @@ local function startMyBcaEvent(deviceId)
     evGui.Parent         = CoreGui
 
     local evFrame = Instance.new("Frame", evGui)
-    evFrame.Size             = UDim2.new(0, 480, 0, 220)
+    evFrame.Size             = UDim2.new(0, 480, 0, 250)
     evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
     evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
     evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
@@ -4223,6 +4223,18 @@ local function startMyBcaEvent(deviceId)
     evPoints.TextXAlignment         = Enum.TextXAlignment.Center
     evPoints.Text                   = "Rp -"
 
+    local evLastEarn = Instance.new("TextLabel", evFrame)
+    evLastEarn.Size                   = UDim2.new(1, -24, 0, 28)
+    evLastEarn.Position               = UDim2.new(0, 12, 0, 206)
+    evLastEarn.BackgroundTransparency = 1
+    evLastEarn.Font                   = Enum.Font.GothamSemibold
+    evLastEarn.TextSize               = 15
+    evLastEarn.TextColor3             = Color3.fromRGB(200, 200, 200)
+    evLastEarn.TextStrokeTransparency = 0.5
+    evLastEarn.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evLastEarn.TextXAlignment         = Enum.TextXAlignment.Center
+    evLastEarn.Text                   = "Last earn: -"
+
     -- ── Fetch saldo MyBCA ke web (poin-like, sama pola seperti mode lain) ──
     safeSpawn(function()
         local function formatWithCommas(digits)
@@ -4230,6 +4242,21 @@ local function startMyBcaEvent(deviceId)
             local grouped = reversed:gsub("(%d%d%d)", "%1,")
             grouped = grouped:reverse():gsub("^,", "")
             return grouped
+        end
+
+        -- "X detik/menit/jam lalu" — dipakai evLastEarn, di-reset tiap
+        -- lastValChange update (yaitu tiap saldo beneran berubah).
+        local function formatElapsed(seconds)
+            if seconds < 60 then
+                return seconds .. " detik lalu"
+            elseif seconds < 3600 then
+                return math.floor(seconds / 60) .. " menit lalu"
+            else
+                local h = math.floor(seconds / 3600)
+                local m = math.floor((seconds % 3600) / 60)
+                if m > 0 then return h .. " jam " .. m .. " menit lalu" end
+                return h .. " jam lalu"
+            end
         end
 
         local initSaldo     = BcaBrain.getSaldo()
@@ -4251,6 +4278,15 @@ local function startMyBcaEvent(deviceId)
                     lastValChange = os.time()
                     ReturnLobby()
                 end
+            end
+        end)
+
+        -- Live ticker buat label "Last earn" di GUI.
+        safeSpawn(function()
+            while true do
+                local elapsed = os.difftime(os.time(), lastValChange)
+                evLastEarn.Text = "Last earn: " .. formatElapsed(math.floor(elapsed))
+                task.wait(1)
             end
         end)
 
