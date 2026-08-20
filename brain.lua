@@ -2610,6 +2610,8 @@ end
 local function startMerdekaEvent(deviceId)
     log("[MERDEKA] Starting Merdeka for " .. player.Name .. " (" .. tostring(deviceId) .. ")")
 
+    serverLock()
+
     -- Hapus phone / hub
     safeSpawn(function()
         pcall(function()
