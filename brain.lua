@@ -63,6 +63,7 @@ logFrame.Position        = UDim2.new(0, 20, 0, 100)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 logFrame.BackgroundTransparency = 0.15
 logFrame.BorderSizePixel = 0
+logFrame.Visible         = false -- panel debug disembunyikan, tapi log() tetap jalan (print + EJECT BRAIN tetap ada)
 
 local logText = Instance.new("TextLabel", logFrame)
 logText.Size                   = UDim2.new(1, -10, 1, -10)
