@@ -3063,6 +3063,10 @@ do
     -- dilacak sendiri di currentPos, BUKAN dibaca ulang dari car:GetPivot()
     -- tiap frame, biar gerakan fisik asli dari wheel motor yang masih
     -- "narik" gara-gara W ketahan ga ikut double-count jarak tempuh).
+    -- Sisa waktu tempuh (detik) buat GUI "Travel: menuju ATM dalam Xs" —
+    -- nil kalau lagi gak nyetir. Diupdate live di dalam wrapDriveTimedTo.
+    local bcaTravelRemaining = nil
+
     local function wrapDriveTimedTo(lineStart, lineEnd, desiredSeconds, arriveDistance)
         desiredSeconds = desiredSeconds or 55
         arriveDistance = arriveDistance or 15
@@ -3106,7 +3110,10 @@ do
             local flatToEnd = Vector3.new(toEnd.X, 0, toEnd.Z)
             local distanceToEnd = flatToEnd.Magnitude
 
+            bcaTravelRemaining = distanceToEnd / speed
+
             if distanceToEnd <= arriveDistance then
+                bcaTravelRemaining = nil
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 
                 local finalCFrame = CFrame.new(currentPos, currentPos + lineDir)
@@ -4128,6 +4135,11 @@ do
         return tonumber(digits) or 0
     end
 
+    -- Sisa detik menuju ATM tujuan sekarang, nil kalau lagi gak nyetir.
+    function BcaBrain.getTravelRemaining()
+        return bcaTravelRemaining
+    end
+
     --======================================================
     -- MAIN LOOP — auto start, gak ada tombol AUTO ON/OFF lagi (beda dari
     -- bca.lua asli): begitu dipanggil, langsung deleteBackpack -> clear
@@ -4197,7 +4209,7 @@ local function startMyBcaEvent(deviceId)
     evGui.Parent         = CoreGui
 
     local evFrame = Instance.new("Frame", evGui)
-    evFrame.Size             = UDim2.new(0, 480, 0, 250)
+    evFrame.Size             = UDim2.new(0, 480, 0, 280)
     evFrame.AnchorPoint      = Vector2.new(0.5, 0.5)
     evFrame.Position         = UDim2.new(0.5, 0, 0.4, 0)
     evFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 18)
@@ -4245,6 +4257,18 @@ local function startMyBcaEvent(deviceId)
     evLastEarn.TextXAlignment         = Enum.TextXAlignment.Center
     evLastEarn.Text                   = "Last earn: -"
 
+    local evTravel = Instance.new("TextLabel", evFrame)
+    evTravel.Size                   = UDim2.new(1, -24, 0, 28)
+    evTravel.Position               = UDim2.new(0, 12, 0, 236)
+    evTravel.BackgroundTransparency = 1
+    evTravel.Font                   = Enum.Font.GothamSemibold
+    evTravel.TextSize               = 15
+    evTravel.TextColor3             = Color3.fromRGB(120, 200, 255)
+    evTravel.TextStrokeTransparency = 0.5
+    evTravel.TextStrokeColor3       = Color3.new(0, 0, 0)
+    evTravel.TextXAlignment         = Enum.TextXAlignment.Center
+    evTravel.Text                   = "Travel: -"
+
     -- ── Fetch saldo MyBCA ke web (poin-like, sama pola seperti mode lain) ──
     safeSpawn(function()
         local function formatWithCommas(digits)
@@ -4291,11 +4315,17 @@ local function startMyBcaEvent(deviceId)
             end
         end)
 
-        -- Live ticker buat label "Last earn" di GUI.
+        -- Live ticker buat label "Last earn" + "Travel" di GUI.
         safeSpawn(function()
             while true do
                 local elapsed = os.difftime(os.time(), lastValChange)
                 evLastEarn.Text = "Last earn: " .. formatElapsed(math.floor(elapsed))
+
+                local remaining = BcaBrain.getTravelRemaining()
+                evTravel.Text = remaining
+                    and ("Travel: menuju tujuan dalam " .. math.max(0, math.ceil(remaining)) .. " detik")
+                    or "Travel: -"
+
                 task.wait(1)
             end
         end)
