@@ -3325,7 +3325,10 @@ do
         local label = atmGetStatusLabel()
         if not label then return nil, nil, nil end
         local text = tostring(label.Text)
-        local current, total = text:match("ATM terisi:%s*(%d+)%s*/%s*(%d+)")
+        -- Bahasa-independent: cocokkan pola "X/Y" apapun, bukan frasa
+        -- Indonesia literal ("ATM terisi:") yang gagal match kalau akun
+        -- Roblox-nya di-set bahasa Inggris (label GUI ikut ke-translate).
+        local current, total = text:match("(%d+)%s*/%s*(%d+)")
         if not current or not total then return nil, nil, text end
         return tonumber(current), tonumber(total), text
     end
@@ -3574,7 +3577,9 @@ do
 
         local function getKoperProgress()
             local text = tostring(koperStatus.Text)
-            local current, total = text:match("Koper di mobil:%s*(%d+)%s*/%s*(%d+)")
+            -- Bahasa-independent: sama seperti atmGetProgress(), jangan
+            -- gantung ke frasa Indonesia literal.
+            local current, total = text:match("(%d+)%s*/%s*(%d+)")
             if not current or not total then return nil, nil, text end
             return tonumber(current), tonumber(total), text
         end
