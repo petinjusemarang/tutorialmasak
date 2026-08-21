@@ -3346,6 +3346,26 @@ do
         return jobGui and waitForChildSafe(jobGui, "BankCourier", 10)
     end
 
+    -- Koper progress ("Koper di mobil: X/Y") — dibikin top-level (bukan
+    -- nested di dalam runStep5 doang) supaya bisa dipanggil dari luar juga
+    -- (dipakai buat stuck-detector berbasis progress job, bukan saldo).
+    local function bcaGetKoperStatusLabel()
+        local pg = player:WaitForChild("PlayerGui")
+        local jobGui = waitForChildSafe(pg, "Job", 10)
+        local bankCourierGui = jobGui and waitForChildSafe(jobGui, "BankCourier", 10)
+        local statusGui = bankCourierGui and waitForChildSafe(bankCourierGui, "Status", 10)
+        return statusGui and waitForChildSafe(statusGui, "Koper", 10)
+    end
+
+    local function bcaGetKoperProgress()
+        local label = bcaGetKoperStatusLabel()
+        if not label then return nil, nil, nil end
+        local text = tostring(label.Text)
+        local current, total = text:match("(%d+)%s*/%s*(%d+)")
+        if not current or not total then return nil, nil, text end
+        return tonumber(current), tonumber(total), text
+    end
+
     local function atmNormalizeAngle(angle)
         angle = angle % 360
         if angle < 0 then angle = angle + 360 end
@@ -3598,12 +3618,7 @@ do
         if not koperStatus then blog("[5] Status.Koper tidak ditemukan!"); return false end
 
         local function getKoperProgress()
-            local text = tostring(koperStatus.Text)
-            -- Bahasa-independent: sama seperti atmGetProgress(), jangan
-            -- gantung ke frasa Indonesia literal.
-            local current, total = text:match("(%d+)%s*/%s*(%d+)")
-            if not current or not total then return nil, nil, text end
-            return tonumber(current), tonumber(total), text
+            return bcaGetKoperProgress()
         end
 
         local bca = getBCA()
@@ -4148,6 +4163,16 @@ do
         return bcaTravelRemaining
     end
 
+    -- Progress job mentah (koper di mobil + ATM terisi) — dipakai stuck-
+    -- detector di startMyBcaEvent() berbasis progress job, BUKAN saldo
+    -- (saldo bisa aja naik dari hal lain di luar kerjaan koper/ATM ini,
+    -- jadi kurang presisi buat nandain quest-nya beneran jalan atau nggak).
+    function BcaBrain.getJobProgress()
+        local koperCurrent, koperTotal = bcaGetKoperProgress()
+        local atmCurrent, atmTotal = atmGetProgress()
+        return koperCurrent, koperTotal, atmCurrent, atmTotal
+    end
+
     --======================================================
     -- MAIN LOOP — auto start, gak ada tombol AUTO ON/OFF lagi (beda dari
     -- bca.lua asli): begitu dipanggil, langsung deleteBackpack -> clear
@@ -4310,15 +4335,37 @@ local function startMyBcaEvent(deviceId)
         sendInit(tostring(initSaldo))
         apiUpdate(player.Name, initSaldo)
 
-        -- Stuck detector: saldo ga naik 10 menit → auto reconnect.
+        -- Stuck detector: BERBASIS PROGRESS JOB (jumlah koper di mobil +
+        -- ATM terisi), BUKAN saldo — saldo MyBCA kadang naik dari hal lain
+        -- di luar kerjaan koper/ATM ini (mirip "paycheck" yang bikin jenis
+        -- uang keliatan jalan padahal job-nya sendiri stuck), jadi progress
+        -- job jauh lebih presisi buat nandain quest ini beneran jalan atau
+        -- nggak. Kalau signature (koper X/Y + ATM X/Y) sama persis selama
+        -- 20 menit → kick ke lobby lalu masuk lagi (sama kayak joki uang).
         safeSpawn(function()
-            local STUCK_THRESHOLD = 600
+            local STUCK_THRESHOLD = 1200 -- 20 menit
+            local lastProgressSignature = nil
+            local lastProgressChange    = os.time()
             while true do
                 task.wait(60)
-                local elapsed = os.difftime(os.time(), lastValChange)
+
+                local koperCurrent, koperTotal, atmCurrent, atmTotal = BcaBrain.getJobProgress()
+                local signature = table.concat({
+                    tostring(koperCurrent), tostring(koperTotal),
+                    tostring(atmCurrent), tostring(atmTotal),
+                }, "/")
+
+                if lastProgressSignature == nil or signature ~= lastProgressSignature then
+                    lastProgressSignature = signature
+                    lastProgressChange    = os.time()
+                end
+
+                local elapsed = os.difftime(os.time(), lastProgressChange)
                 if elapsed >= STUCK_THRESHOLD then
-                    log("[BCA] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
-                    lastValChange = os.time()
+                    log("[BCA] Progress job (koper " .. tostring(koperCurrent) .. "/" .. tostring(koperTotal)
+                        .. ", ATM " .. tostring(atmCurrent) .. "/" .. tostring(atmTotal)
+                        .. ") gak berubah " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastProgressChange = os.time()
                     ReturnLobby()
                 end
             end
