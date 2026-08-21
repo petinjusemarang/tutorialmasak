@@ -3431,12 +3431,22 @@ do
     --======================================================
     local startPosition = Vector3.new(1805.003, 24.283, -4632.021)
     local carSpawnPosition = Vector3.new(1873.906, 23.369, -4887.753)
-    local wrapTravelTimeSeconds = 65
-    -- Jarak antar ATM ada yang jauh banget — di atas LONG_DISTANCE_THRESHOLD
-    -- stud, kasih waktu tempuh lebih lama (LONG_DISTANCE_TRAVEL_SECONDS)
-    -- biar speed wrapDriveTimedTo (jarak/waktu) ga jadi kegedean/nge-glitch.
-    local LONG_DISTANCE_THRESHOLD    = 10000
-    local LONG_DISTANCE_TRAVEL_SECONDS = 75
+    -- Jarak antar ATM ada yang jauh banget — makin jauh, kasih waktu tempuh
+    -- lebih lama biar speed wrapDriveTimedTo (jarak/waktu) ga jadi
+    -- kegedean/nge-glitch. Urut naik; threshold pertama yang jaraknya <=
+    -- itu yang dipakai (tier terakhir = fallback buat jarak di atas semua).
+    local TRAVEL_TIME_TIERS = {
+        { maxDistance = 10000,     seconds = 65 },
+        { maxDistance = 15000,     seconds = 75 },
+        { maxDistance = math.huge, seconds = 85 },
+    }
+
+    local function getTravelSeconds(distance)
+        for _, tier in ipairs(TRAVEL_TIME_TIERS) do
+            if distance <= tier.maxDistance then return tier.seconds end
+        end
+        return TRAVEL_TIME_TIERS[#TRAVEL_TIME_TIERS].seconds
+    end
 
     local function runStep1()
         local character, hrp = getCharacter()
@@ -3964,9 +3974,7 @@ do
             end
 
             local driveDistance = (floorTargetPoint - driveLineStart).Magnitude
-            local travelSeconds = driveDistance > LONG_DISTANCE_THRESHOLD
-                and LONG_DISTANCE_TRAVEL_SECONDS
-                or wrapTravelTimeSeconds
+            local travelSeconds = getTravelSeconds(driveDistance)
 
             wrapDriveTimedTo(driveLineStart, floorTargetPoint, travelSeconds, ATM_FLOOR_ARRIVE_DISTANCE)
         end
