@@ -4304,6 +4304,7 @@ local function startMyBcaEvent(deviceId)
         local initSaldo     = BcaBrain.getSaldo()
         local latestSaldo   = initSaldo
         local lastValChange = os.time()
+        local lastLoopTick  = os.time() -- diupdate tiap iterasi loop report di bawah, TERLEPAS saldo berubah atau nggak
         evPoints.Text = "Rp " .. formatWithCommas(tostring(latestSaldo))
         log("[BCA] Saldo awal: " .. tostring(initSaldo))
         sendInit(tostring(initSaldo))
@@ -4319,6 +4320,31 @@ local function startMyBcaEvent(deviceId)
                     log("[BCA] Stuck " .. math.floor(elapsed / 60) .. "m — auto reconnect")
                     lastValChange = os.time()
                     ReturnLobby()
+                end
+            end
+        end)
+
+        -- Hard watchdog — kalau loop report di bawah (yang seharusnya
+        -- ngirim sendUpdate/apiUpdate tiap 60s, ga peduli saldo berubah
+        -- atau nggak) berhenti detak SAMA SEKALI selama 15 menit, itu
+        -- beda kasus dari "saldo cuma flat" (yang stuck detector di atas
+        -- sudah tangani) — berarti coroutine-nya sendiri mati/nge-hang.
+        -- ReturnLobby() lewat GUI-click Settings bisa aja "berhasil" tanpa
+        -- beneran reconnect kalau state game lagi aneh, jadi di sini
+        -- langsung paksa hard teleport, ga lewat ReturnLobby lagi.
+        safeSpawn(function()
+            local HARD_WATCHDOG_THRESHOLD = 900
+            while true do
+                task.wait(60)
+                local silent = os.difftime(os.time(), lastLoopTick)
+                if silent >= HARD_WATCHDOG_THRESHOLD then
+                    log("[BCA] Report loop diam " .. math.floor(silent / 60) .. "m (coroutine macet?) — hard reconnect paksa")
+                    lastLoopTick  = os.time()
+                    lastValChange = os.time()
+                    pcall(function()
+                        queueOnTeleport(AUTOEXEC)
+                        game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+                    end)
                 end
             end
         end)
@@ -4340,15 +4366,22 @@ local function startMyBcaEvent(deviceId)
 
         while true do
             task.wait(60)
-            local cur = BcaBrain.getSaldo()
-            if cur > 0 and cur ~= latestSaldo then
-                latestSaldo   = cur
-                lastValChange = os.time()
-                log("[BCA] Saldo update: " .. tostring(cur))
+            lastLoopTick = os.time() -- tercatat di awal, sebelum apapun yang berisiko error, biar watchdog di atas tau loop-nya masih hidup
+
+            local ok, err = pcall(function()
+                local cur = BcaBrain.getSaldo()
+                if cur > 0 and cur ~= latestSaldo then
+                    latestSaldo   = cur
+                    lastValChange = os.time()
+                    log("[BCA] Saldo update: " .. tostring(cur))
+                end
+                evPoints.Text = "Rp " .. formatWithCommas(tostring(latestSaldo))
+                sendUpdate(tostring(latestSaldo))
+                safeApiUpdate(player.Name, latestSaldo)
+            end)
+            if not ok then
+                log("[BCA] Report loop error (ditangkap, lanjut jalan): " .. tostring(err))
             end
-            evPoints.Text = "Rp " .. formatWithCommas(tostring(latestSaldo))
-            sendUpdate(tostring(latestSaldo))
-            safeApiUpdate(player.Name, latestSaldo)
         end
     end)
 
