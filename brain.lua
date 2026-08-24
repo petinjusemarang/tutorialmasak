@@ -4214,6 +4214,18 @@ do
     end
 end
 
+-- ReturnLobby() (klik tombol Settings > ReturnMenu lewat firesignal) bisa
+-- "berhasil" (ga error) TANPA beneran reconnect kalau state game BCA lagi
+-- aneh (clear-map, backpack kehapus, dst) — kejadian nyata: stuck-detector
+-- BCA nge-reset timernya tapi akun ga pernah pindah server. Ganti ke hard
+-- teleport langsung (sama kayak hard-watchdog di bawah), lebih pasti.
+local function bcaHardReconnect()
+    pcall(function()
+        queueOnTeleport(AUTOEXEC)
+        game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+    end)
+end
+
 local function startMyBcaEvent(deviceId)
     log("[BCA] Starting Event BCA for " .. player.Name .. " (" .. tostring(deviceId) .. ")")
 
@@ -4366,7 +4378,7 @@ local function startMyBcaEvent(deviceId)
                         .. ", ATM " .. tostring(atmCurrent) .. "/" .. tostring(atmTotal)
                         .. ") gak berubah " .. math.floor(elapsed / 60) .. "m — auto reconnect")
                     lastProgressChange = os.time()
-                    ReturnLobby()
+                    bcaHardReconnect()
                 end
             end
         end)
@@ -4374,8 +4386,8 @@ local function startMyBcaEvent(deviceId)
         -- Stuck detector kedua: BERBASIS "Last earn" (saldo, lastValChange
         -- yang sama dipakai label GUI Last Earn). Independen dari detector
         -- progress job di atas — mana pun yang kena duluan (job progress
-        -- diam 20 menit ATAU saldo diam 15 menit) sama-sama trigger
-        -- ReturnLobby(), kick ke lobby lalu masuk lagi kayak biasa.
+        -- diam 20 menit ATAU saldo diam 15 menit) sama-sama trigger hard
+        -- reconnect, kick ke lobby lalu masuk lagi kayak biasa.
         safeSpawn(function()
             local LAST_EARN_THRESHOLD = 900 -- 15 menit
             while true do
@@ -4384,7 +4396,7 @@ local function startMyBcaEvent(deviceId)
                 if elapsed >= LAST_EARN_THRESHOLD then
                     log("[BCA] Last earn " .. math.floor(elapsed / 60) .. "m — auto reconnect")
                     lastValChange = os.time()
-                    ReturnLobby()
+                    bcaHardReconnect()
                 end
             end
         end)
@@ -4394,9 +4406,6 @@ local function startMyBcaEvent(deviceId)
         -- atau nggak) berhenti detak SAMA SEKALI selama 15 menit, itu beda
         -- kasus dari "saldo/job cuma flat" (dua detector di atas sudah
         -- tangani itu) — berarti coroutine-nya sendiri mati/nge-hang.
-        -- ReturnLobby() lewat GUI-click Settings bisa aja "berhasil" tanpa
-        -- beneran reconnect kalau state game lagi aneh, jadi di sini
-        -- langsung paksa hard teleport, ga lewat ReturnLobby lagi.
         safeSpawn(function()
             local HARD_WATCHDOG_THRESHOLD = 900
             while true do
@@ -4406,10 +4415,7 @@ local function startMyBcaEvent(deviceId)
                     log("[BCA] Report loop diam " .. math.floor(silent / 60) .. "m (coroutine macet?) — hard reconnect paksa")
                     lastLoopTick  = os.time()
                     lastValChange = os.time()
-                    pcall(function()
-                        queueOnTeleport(AUTOEXEC)
-                        game:GetService("TeleportService"):Teleport(game.PlaceId, player)
-                    end)
+                    bcaHardReconnect()
                 end
             end
         end)
