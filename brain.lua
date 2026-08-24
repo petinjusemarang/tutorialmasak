@@ -3092,6 +3092,7 @@ do
 
         local lastMaintenanceCheck, MAINTENANCE_INTERVAL = tick(), 2
         local lastStep = tick()
+        local tripStart = tick()
         local reached = false
         local currentPos = lineStart
 
@@ -3110,7 +3111,13 @@ do
             local flatToEnd = Vector3.new(toEnd.X, 0, toEnd.Z)
             local distanceToEnd = flatToEnd.Magnitude
 
-            bcaTravelRemaining = distanceToEnd / speed
+            -- Dihitung dari waktu tempuh TETAP (desiredSeconds) dikurangi
+            -- waktu asli yang udah lewat sejak trip mulai — BUKAN dari
+            -- distanceToEnd/speed yang dibaca ulang tiap frame. Distance
+            -- itu ikut kejeda/lompat kalau ada frame yang lag/hiccup,
+            -- countdown-nya jadi keliatan macet-macet-lompat. Berbasis
+            -- jam beneran, countdown-nya jalan halus terlepas dari itu.
+            bcaTravelRemaining = math.max(0, desiredSeconds - (tick() - tripStart))
 
             if distanceToEnd <= arriveDistance then
                 bcaTravelRemaining = nil
