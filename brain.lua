@@ -3098,31 +3098,7 @@ do
         while true do
             if tick() - lastMaintenanceCheck > MAINTENANCE_INTERVAL then
                 lastMaintenanceCheck = tick()
-
-                -- performDriveMaintenance() bisa nge-block sampai beberapa
-                -- detik (tapKey + task.wait retry buat handbrake/gigi/
-                -- transmisi). Selama itu, AssemblyLinearVelocity mobil
-                -- MASIH ke-set ke travelVelocity dari frame sebelumnya —
-                -- kalau dibiarin, fisik mobil terus melaju sendiri lewat
-                -- physics engine TANPA ke-track sama sekali (currentPos
-                -- kita gak gerak), jadi mobil bisa "bablas" nabrak ATM.
-                -- Nol-in velocity dulu biar mobil beku selama maintenance,
-                -- posisi fisik ga meleset dari currentPos yang kita lacak.
-                for _, part in ipairs(car:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                        part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                    end
-                end
-
                 performDriveMaintenance()
-
-                -- lastStep di-reset SETELAH maintenance, bukan sebelum —
-                -- kalau nggak, dt di iterasi berikutnya bakal ikut ngitung
-                -- durasi pause maintenance-nya juga (bisa >3 detik),
-                -- bikin moveDistance = speed*dt jadi lompatan gede
-                -- sekaligus (ini penyebab detik countdown "lompat").
-                lastStep = tick()
             end
 
             local now = tick()
