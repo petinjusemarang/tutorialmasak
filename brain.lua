@@ -3483,7 +3483,7 @@ do
     -- lagi kalkulasi/tier waktu tempuh berdasarkan jarak. wrapDriveTimedTo
     -- sendiri masih nerima "desiredSeconds" (bukan speed langsung), jadi
     -- di sini tinggal dibalik: seconds = jarak / speed.
-    local CAR_TWEEN_SPEED = 100
+    local CAR_TWEEN_SPEED = 150
 
     local function getTravelSeconds(distance)
         return math.max(distance / CAR_TWEEN_SPEED, 1)
