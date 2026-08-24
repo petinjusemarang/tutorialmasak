@@ -3451,6 +3451,25 @@ do
     --======================================================
     local startPosition = Vector3.new(1805.003, 24.283, -4632.021)
     local carSpawnPosition = Vector3.new(1873.906, 23.369, -4887.753)
+
+    -- Titik parkir kalibrasi manual per ATM (X/Z aja yang dipakai — Y-nya
+    -- ketinggian tanah ASLI tiap ATM, beda-beda jauh, jangan dipakai buat
+    -- drive di lantai kotak sintetis yang cuma satu ketinggian tetap; kalau
+    -- dipaksa transisi ke Y asli tiap ATM, mobil nabrak curb/tepi platform
+    -- — makanya cuma X/Z yang diambil, Y tetap ikut lantai kotak).
+    local BCA_ATM_SAFE_STOPS = {
+        ATM1  = Vector3.new(6341.933594,  21.815159, -7192.667969),
+        ATM2  = Vector3.new(2192.826416,  28.073338,  -4578.866699),
+        ATM3  = Vector3.new(821.880737,   22.158598,  -3792.762939),
+        ATM4  = Vector3.new(-1906.614624, 23.770407,  1171.328979),
+        ATM5  = Vector3.new(-4492.986816, 25.727510,  4352.214844),
+        ATM6  = Vector3.new(-4513.129883, 22.768154,  9698.768555),
+        ATM7  = Vector3.new(-441.681641,  22.164188,  8774.429688),
+        ATM8  = Vector3.new(-223.714020,  22.950201,  10710.350586),
+        ATM9  = Vector3.new(1542.021240,  51.159866,  865.166138),
+        ATM10 = Vector3.new(2047.485352,  21.713932,  -3513.444336),
+    }
+
     -- Jarak antar ATM ada yang jauh banget — makin jauh, kasih waktu tempuh
     -- lebih lama biar speed wrapDriveTimedTo (jarak/waktu) ga jadi
     -- kegedean/nge-glitch. Urut naik; threshold pertama yang jaraknya <=
@@ -3955,12 +3974,17 @@ do
 
         -- Lantai kotak sejajar tanah: teleport instan ke titik entry (atau
         -- geser 50 stud dari posisi mobil sekarang kalau udah pernah masuk
-        -- lantai sebelumnya), lalu ditarik (wrap timed) lurus ke titik
-        -- sejajar ATM tujuan — begitu masuk radius arrive, mobil berhenti
-        -- di situ juga (ga ada lagi teleport naik/turun ke papan parkir).
+        -- lantai sebelumnya), lalu ditarik (wrap timed) lurus ke TITIK
+        -- PARKIR kalibrasi manual ATM tujuan (X/Z dari BCA_ATM_SAFE_STOPS,
+        -- Y tetap ikut lantai kotak) — bukan lagi radius sembarang dari
+        -- titik tengah ATM, biar mobil berhenti persis di spot yang aman,
+        -- gak nyeruduk badan ATM-nya.
         if bcaFloorEntryPoint and bcaFloorY then
-            local ATM_FLOOR_ARRIVE_DISTANCE = 35
-            local floorTargetPoint = Vector3.new(atmCFrame.Position.X, bcaFloorY + 1, atmCFrame.Position.Z)
+            local ATM_FLOOR_ARRIVE_DISTANCE = 12
+            local safeStop = BCA_ATM_SAFE_STOPS[closestATM.Name]
+            local targetX = safeStop and safeStop.X or atmCFrame.Position.X
+            local targetZ = safeStop and safeStop.Z or atmCFrame.Position.Z
+            local floorTargetPoint = Vector3.new(targetX, bcaFloorY + 1, targetZ)
             local driveLineStart = bcaFloorEntryPoint
 
             if not hasEnteredFloor then
