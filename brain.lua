@@ -3479,21 +3479,14 @@ do
         ATM10 = Vector3.new(2047.485352,  21.713932,  -3513.444336),
     }
 
-    -- Jarak antar ATM ada yang jauh banget — makin jauh, kasih waktu tempuh
-    -- lebih lama biar speed wrapDriveTimedTo (jarak/waktu) ga jadi
-    -- kegedean/nge-glitch. Urut naik; threshold pertama yang jaraknya <=
-    -- itu yang dipakai (tier terakhir = fallback buat jarak di atas semua).
-    local TRAVEL_TIME_TIERS = {
-        { maxDistance = 10000,     seconds = 65 },
-        { maxDistance = 15000,     seconds = 75 },
-        { maxDistance = math.huge, seconds = 85 },
-    }
+    -- Speed tween mobil RATA buat semua jarak — 100 stud/detik, gak perlu
+    -- lagi kalkulasi/tier waktu tempuh berdasarkan jarak. wrapDriveTimedTo
+    -- sendiri masih nerima "desiredSeconds" (bukan speed langsung), jadi
+    -- di sini tinggal dibalik: seconds = jarak / speed.
+    local CAR_TWEEN_SPEED = 100
 
     local function getTravelSeconds(distance)
-        for _, tier in ipairs(TRAVEL_TIME_TIERS) do
-            if distance <= tier.maxDistance then return tier.seconds end
-        end
-        return TRAVEL_TIME_TIERS[#TRAVEL_TIME_TIERS].seconds
+        return math.max(distance / CAR_TWEEN_SPEED, 1)
     end
 
     local function runStep1()
@@ -4010,9 +4003,9 @@ do
                     if mainDir.Magnitude > 0.001 then
                         mainDir = mainDir.Unit
                         local rightDir = Vector3.new(mainDir.Z, 0, -mainDir.X)
-                        local SLIDE_DISTANCE, SLIDE_DURATION, SLIDE_ARRIVE_DISTANCE = 50, 1.5, 3
+                        local SLIDE_DISTANCE, SLIDE_ARRIVE_DISTANCE = 50, 3
                         local slidePoint = currentCarPos + rightDir * SLIDE_DISTANCE
-                        wrapDriveTimedTo(currentCarPos, slidePoint, SLIDE_DURATION, SLIDE_ARRIVE_DISTANCE)
+                        wrapDriveTimedTo(currentCarPos, slidePoint, getTravelSeconds(SLIDE_DISTANCE), SLIDE_ARRIVE_DISTANCE)
                         driveLineStart = slidePoint
                     end
                 else
