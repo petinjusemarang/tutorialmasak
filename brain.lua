@@ -3063,9 +3063,15 @@ do
     -- dilacak sendiri di currentPos, BUKAN dibaca ulang dari car:GetPivot()
     -- tiap frame, biar gerakan fisik asli dari wheel motor yang masih
     -- "narik" gara-gara W ketahan ga ikut double-count jarak tempuh).
-    -- Sisa waktu tempuh (detik) buat GUI "Travel: menuju ATM dalam Xs" —
-    -- nil kalau lagi gak nyetir. Diupdate live di dalam wrapDriveTimedTo.
-    local bcaTravelRemaining = nil
+    -- Deadline (tick()) trip sekarang buat GUI "Travel: menuju ATM dalam
+    -- Xs" — nil kalau lagi gak nyetir. Cuma di-SET SEKALI di awal trip
+    -- (bukan diupdate tiap frame) — sisa detiknya dihitung ON DEMAND dari
+    -- deadline ini (lihat BcaBrain.getTravelRemaining di bawah), jadi
+    -- countdown-nya jalan independen dari loop drive-nya sendiri. Kalau
+    -- ngandelin loop drive buat nge-update tiap frame, begitu loop itu
+    -- kejeda beberapa detik (mis. performDriveMaintenance nge-retry),
+    -- angkanya ikut diem dulu baru lompat pas loop-nya jalan lagi.
+    local bcaTripEndTime = nil
 
     local function wrapDriveTimedTo(lineStart, lineEnd, desiredSeconds, arriveDistance)
         desiredSeconds = desiredSeconds or 55
@@ -3092,9 +3098,13 @@ do
 
         local lastMaintenanceCheck, MAINTENANCE_INTERVAL = tick(), 2
         local lastStep = tick()
-        local tripStart = tick()
         local reached = false
         local currentPos = lineStart
+
+        -- Deadline di-set SEKALI di sini (bukan diupdate tiap frame) —
+        -- GUI ticker independen di startMyBcaEvent() yang ngitung sisa
+        -- detiknya sendiri dari titik ini, gak nunggu loop di bawah.
+        bcaTripEndTime = tick() + desiredSeconds
 
         while true do
             if tick() - lastMaintenanceCheck > MAINTENANCE_INTERVAL then
@@ -3111,16 +3121,8 @@ do
             local flatToEnd = Vector3.new(toEnd.X, 0, toEnd.Z)
             local distanceToEnd = flatToEnd.Magnitude
 
-            -- Dihitung dari waktu tempuh TETAP (desiredSeconds) dikurangi
-            -- waktu asli yang udah lewat sejak trip mulai — BUKAN dari
-            -- distanceToEnd/speed yang dibaca ulang tiap frame. Distance
-            -- itu ikut kejeda/lompat kalau ada frame yang lag/hiccup,
-            -- countdown-nya jadi keliatan macet-macet-lompat. Berbasis
-            -- jam beneran, countdown-nya jalan halus terlepas dari itu.
-            bcaTravelRemaining = math.max(0, desiredSeconds - (tick() - tripStart))
-
             if distanceToEnd <= arriveDistance then
-                bcaTravelRemaining = nil
+                bcaTripEndTime = nil
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.W, false, game)
 
                 local finalCFrame = CFrame.new(currentPos, currentPos + lineDir)
@@ -4190,8 +4192,12 @@ do
     end
 
     -- Sisa detik menuju ATM tujuan sekarang, nil kalau lagi gak nyetir.
+    -- Dihitung ON DEMAND dari bcaTripEndTime (deadline tetap yang di-set
+    -- sekali di awal trip) — independen dari loop drive-nya sendiri, jadi
+    -- tetep jalan mulus walau loop itu lagi kejeda (mis. maintenance).
     function BcaBrain.getTravelRemaining()
-        return bcaTravelRemaining
+        if not bcaTripEndTime then return nil end
+        return math.max(0, bcaTripEndTime - tick())
     end
 
     -- Progress job mentah (koper di mobil + ATM terisi) — dipakai stuck-
