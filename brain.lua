@@ -4371,11 +4371,29 @@ local function startMyBcaEvent(deviceId)
             end
         end)
 
+        -- Stuck detector kedua: BERBASIS "Last earn" (saldo, lastValChange
+        -- yang sama dipakai label GUI Last Earn). Independen dari detector
+        -- progress job di atas — mana pun yang kena duluan (job progress
+        -- diam 20 menit ATAU saldo diam 15 menit) sama-sama trigger
+        -- ReturnLobby(), kick ke lobby lalu masuk lagi kayak biasa.
+        safeSpawn(function()
+            local LAST_EARN_THRESHOLD = 900 -- 15 menit
+            while true do
+                task.wait(60)
+                local elapsed = os.difftime(os.time(), lastValChange)
+                if elapsed >= LAST_EARN_THRESHOLD then
+                    log("[BCA] Last earn " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    lastValChange = os.time()
+                    ReturnLobby()
+                end
+            end
+        end)
+
         -- Hard watchdog — kalau loop report di bawah (yang seharusnya
         -- ngirim sendUpdate/apiUpdate tiap 60s, ga peduli saldo berubah
-        -- atau nggak) berhenti detak SAMA SEKALI selama 15 menit, itu
-        -- beda kasus dari "saldo cuma flat" (yang stuck detector di atas
-        -- sudah tangani) — berarti coroutine-nya sendiri mati/nge-hang.
+        -- atau nggak) berhenti detak SAMA SEKALI selama 15 menit, itu beda
+        -- kasus dari "saldo/job cuma flat" (dua detector di atas sudah
+        -- tangani itu) — berarti coroutine-nya sendiri mati/nge-hang.
         -- ReturnLobby() lewat GUI-click Settings bisa aja "berhasil" tanpa
         -- beneran reconnect kalau state game lagi aneh, jadi di sini
         -- langsung paksa hard teleport, ga lewat ReturnLobby lagi.
