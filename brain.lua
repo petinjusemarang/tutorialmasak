@@ -1204,14 +1204,32 @@ do
         end
         if not targetCFrame then rlog("NPC has no usable position"); return false end
 
-        local character = player.Character or player.CharacterAdded:Wait()
-        local hrp = character:WaitForChild("HumanoidRootPart", 10)
-        if not hrp then rlog("HumanoidRootPart not found"); return false end
+        local destination = targetCFrame + Vector3.new(0, 3, 5)
 
-        hrp.CFrame = targetCFrame + Vector3.new(0, 3, 5)
-        task.wait(1)
-        rlog("Teleported to NPC")
-        return true
+        for attempt = 1, 5 do
+            local character = player.Character or player.CharacterAdded:Wait()
+            local humanoid  = character:FindFirstChildOfClass("Humanoid")
+            local hrp       = character:WaitForChild("HumanoidRootPart", 10)
+            if not hrp then rlog("HumanoidRootPart not found"); return false end
+
+            if humanoid and humanoid.SeatPart then
+                rlog("Masih duduk di mobil, keluar paksa sebelum teleport...")
+                humanoid.Sit = false -- lepas weld seat, kalau masih duduk CFrame manual bakal ketarik balik tiap frame
+                task.wait(0.3)
+            end
+
+            hrp.CFrame = destination
+            task.wait(0.5)
+
+            if (hrp.Position - destination.Position).Magnitude <= 10 then
+                rlog("Teleported to NPC")
+                return true
+            end
+            rlog(string.format("Belum nempel ke NPC (percobaan %d/5), retry...", attempt))
+        end
+
+        rlog("Gagal teleport ke NPC setelah beberapa percobaan")
+        return false
     end
 
     local function interactNpc()
@@ -1396,7 +1414,7 @@ do
 
             elseif state == STATE.REQUEUE then
                 rlog("Finished! Requeuing for the next lap...")
-                state = requeueForNextLap() and STATE.INTERACT_NPC or STATE.FAILED
+                state = requeueForNextLap() and STATE.TELEPORT_NPC or STATE.FAILED
 
             elseif state == STATE.FAILED then
                 -- Jangan cuma diem — kalau state machine gagal total (mis. sempet
