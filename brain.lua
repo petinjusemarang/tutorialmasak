@@ -4271,13 +4271,16 @@ end
 
 -- ReturnLobby() (klik tombol Settings > ReturnMenu lewat firesignal) bisa
 -- "berhasil" (ga error) TANPA beneran reconnect kalau state game BCA lagi
--- aneh (clear-map, backpack kehapus, dst) — kejadian nyata: stuck-detector
--- BCA nge-reset timernya tapi akun ga pernah pindah server. Ganti ke hard
--- teleport langsung (sama kayak hard-watchdog di bawah), lebih pasti.
+-- aneh (clear-map, backpack kehapus, dst). Sebelumnya di sini langsung
+-- TeleportService:Teleport(game.PlaceId, player) tanpa access code — itu
+-- di-matchmake Roblox ke server PUBLIC CDID biasa, dan detectState() ketipu
+-- nganggep itu "ingame" lalu ikut jalanin job BCA di server publik (fatal:
+-- ketauan pemain lain). Kick aja: itu betulan disconnect, ditangkep listener
+-- "Auto reconnect on disconnect" yang manggil ReturnLobby() (dengan fallback
+-- hard-teleport-nya sendiri) — jalur sama persis yang dipakai mode uang dll.
 local function bcaHardReconnect()
     pcall(function()
-        queueOnTeleport(AUTOEXEC)
-        game:GetService("TeleportService"):Teleport(game.PlaceId, player)
+        player:Kick("[SAMLONG] BCA stuck — reconnecting")
     end)
 end
 
