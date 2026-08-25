@@ -4269,21 +4269,6 @@ do
     end
 end
 
--- ReturnLobby() (klik tombol Settings > ReturnMenu lewat firesignal) bisa
--- "berhasil" (ga error) TANPA beneran reconnect kalau state game BCA lagi
--- aneh (clear-map, backpack kehapus, dst). Sebelumnya di sini langsung
--- TeleportService:Teleport(game.PlaceId, player) tanpa access code — itu
--- di-matchmake Roblox ke server PUBLIC CDID biasa, dan detectState() ketipu
--- nganggep itu "ingame" lalu ikut jalanin job BCA di server publik (fatal:
--- ketauan pemain lain). Kick aja: itu betulan disconnect, ditangkep listener
--- "Auto reconnect on disconnect" yang manggil ReturnLobby() (dengan fallback
--- hard-teleport-nya sendiri) — jalur sama persis yang dipakai mode uang dll.
-local function bcaHardReconnect()
-    pcall(function()
-        player:Kick("[SAMLONG] BCA stuck — reconnecting")
-    end)
-end
-
 local function startMyBcaEvent(deviceId)
     log("[BCA] Starting Event BCA for " .. player.Name .. " (" .. tostring(deviceId) .. ")")
 
@@ -4434,9 +4419,12 @@ local function startMyBcaEvent(deviceId)
                 if elapsed >= STUCK_THRESHOLD then
                     log("[BCA] Progress job (koper " .. tostring(koperCurrent) .. "/" .. tostring(koperTotal)
                         .. ", ATM " .. tostring(atmCurrent) .. "/" .. tostring(atmTotal)
-                        .. ") gak berubah " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                        .. ") gak berubah " .. math.floor(elapsed / 60) .. "m — auto return to lobby...")
                     lastProgressChange = os.time()
-                    bcaHardReconnect()
+                    safeSpawn(function()
+                        task.wait(3)
+                        ReturnLobby()
+                    end)
                 end
             end
         end)
@@ -4452,9 +4440,12 @@ local function startMyBcaEvent(deviceId)
                 task.wait(60)
                 local elapsed = os.difftime(os.time(), lastValChange)
                 if elapsed >= LAST_EARN_THRESHOLD then
-                    log("[BCA] Last earn " .. math.floor(elapsed / 60) .. "m — auto reconnect")
+                    log("[BCA] Last earn " .. math.floor(elapsed / 60) .. "m — auto return to lobby...")
                     lastValChange = os.time()
-                    bcaHardReconnect()
+                    safeSpawn(function()
+                        task.wait(3)
+                        ReturnLobby()
+                    end)
                 end
             end
         end)
@@ -4470,10 +4461,13 @@ local function startMyBcaEvent(deviceId)
                 task.wait(60)
                 local silent = os.difftime(os.time(), lastLoopTick)
                 if silent >= HARD_WATCHDOG_THRESHOLD then
-                    log("[BCA] Report loop diam " .. math.floor(silent / 60) .. "m (coroutine macet?) — hard reconnect paksa")
+                    log("[BCA] Report loop diam " .. math.floor(silent / 60) .. "m (coroutine macet?) — auto return to lobby...")
                     lastLoopTick  = os.time()
                     lastValChange = os.time()
-                    bcaHardReconnect()
+                    safeSpawn(function()
+                        task.wait(3)
+                        ReturnLobby()
+                    end)
                 end
             end
         end)
