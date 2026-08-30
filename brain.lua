@@ -3640,10 +3640,6 @@ do
         local bankCourierRemote = getBankCourierRemote()
         if not bankCourierRemote then blog("[4] BankCourier tidak ditemukan!"); return false end
 
-        -- Ternyata "RespawnCar" ini bukan cuma spawn mobil doang, tapi juga
-        -- yang bikin data Job.BankCourier.KoperSpawn.Part di server — tanpa
-        -- ini, titik kopernya emang gak pernah ke-generate sama sekali
-        -- (bukan soal jarak/streaming kayak dugaan awal).
         bankCourierRemote:FireServer("RespawnCar")
 
         local car = nil
@@ -3679,27 +3675,6 @@ do
         local bankCourierRemote = getBankCourierRemote()
         if not bankCourierRemote then blog("[5] BankCourier Remote tidak ditemukan!"); return false end
 
-        -- Ambil referensi mobil + BagasiPoint SEBELUM warp ke titik koper —
-        -- titik koper ~260 studs dari carSpawnPosition, jauh cukup buat
-        -- mobilnya ke-stream out (StreamingEnabled) kalau kita cek pas udah
-        -- di titik koper duluan.
-        local vehicles = waitForChildSafe(workspace, "Vehicles", 10)
-        if not vehicles then blog("[5] Vehicles tidak ditemukan!"); return false end
-
-        local carName = player.Name .. "sCar"
-        local car = vehicles:FindFirstChild(carName)
-        if not car then blog("[5] Vehicle belum spawn!"); return false end
-
-        local bagasiPoint = nil
-        local bagasiStart = tick()
-        while tick() - bagasiStart < 15 do
-            car = vehicles:FindFirstChild(carName)
-            if car then bagasiPoint = car:FindFirstChild("BagasiPoint", true) end
-            if bagasiPoint then break end
-            task.wait(0.25)
-        end
-        if not bagasiPoint then blog("[5] BagasiPoint tidak ditemukan!"); return false end
-
         local bca = getBCA()
         if not bca then blog("[5] BCA belum siap!"); return false end
 
@@ -3712,24 +3687,55 @@ do
         local koperSpawn = waitForChildSafe(bankCourierJob, "KoperSpawn", 10)
         if not koperSpawn then blog("[5] KoperSpawn tidak ditemukan!"); return false end
 
-        -- Teleport ke titik koper dulu sebelum nunggu child "Part"-nya —
-        -- part fisiknya baru ke-stream in kalau karakter udah deket
-        -- (StreamingEnabled), kalau masih di carSpawnPosition yang jauh,
-        -- "Part" gak akan pernah muncul.
-        do
+        local carName = player.Name .. "sCar"
+        local koperPrompt, car, bagasiPoint
+
+        -- Titik koper & titik spawn car cukup jauh (StreamingEnabled bikin
+        -- part yang jauh gak ke-load) — jadi tiap mau ambil/taro koper,
+        -- warp dulu ke titiknya baru cari part-nya di sana.
+        local function warpToKoper()
             local _, hrp = getCharacter()
-            blog("[5] Warp ke titik koper...")
             hrp.CFrame = CFrame.new(koperSpawnPosition)
             task.wait(1)
-            blog("[5] Posisi sekarang: " .. tostring(hrp.Position))
+
+            local koperPart = waitForChildSafe(koperSpawn, "Part", 10)
+            if not koperPart then blog("[5] Part koper tidak ditemukan!"); return false end
+
+            koperPrompt = koperPart:FindFirstChild("Prompt")
+                or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
+            if not koperPrompt then blog("[5] Prompt koper tidak ditemukan!"); return false end
+
+            hrp.CFrame = koperPart.CFrame * CFrame.new(0, 0, -3)
+            return true
         end
 
-        local koperPart = waitForChildSafe(koperSpawn, "Part", 10)
-        if not koperPart then blog("[5] Part koper tidak ditemukan!"); return false end
+        local function warpToBagasi()
+            local _, hrp = getCharacter()
+            hrp.CFrame = CFrame.new(carSpawnPosition)
+            task.wait(1)
 
-        local koperPrompt = koperPart:FindFirstChild("Prompt")
-            or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
-        if not koperPrompt then blog("[5] Prompt koper tidak ditemukan!"); return false end
+            local vehicles = waitForChildSafe(workspace, "Vehicles", 10)
+            if not vehicles then blog("[5] Vehicles tidak ditemukan!"); return false end
+
+            bagasiPoint = nil
+            local waitStart = tick()
+            while tick() - waitStart < 15 do
+                car = vehicles:FindFirstChild(carName)
+                if car then bagasiPoint = car:FindFirstChild("BagasiPoint", true) end
+                if bagasiPoint then break end
+                task.wait(0.25)
+            end
+            if not bagasiPoint then blog("[5] BagasiPoint tidak ditemukan!"); return false end
+
+            if bagasiPoint:IsA("BasePart") then
+                hrp.CFrame = bagasiPoint.CFrame * CFrame.new(0, 0, -2)
+            elseif bagasiPoint:IsA("Model") then
+                hrp.CFrame = bagasiPoint:GetPivot() * CFrame.new(0, 0, -2)
+            elseif bagasiPoint:IsA("Attachment") then
+                hrp.CFrame = CFrame.new(bagasiPoint.WorldPosition)
+            end
+            return true
+        end
 
         local usedKopers = {}
 
@@ -3768,26 +3774,6 @@ do
             return nil
         end
 
-        -- Prompt yang beneran di-fire tiap putaran selalu di koperPart
-        -- ("Part") — satu titik tetap, bukan prompt per-instance koper.
-        local function teleportToKoper()
-            local _, root = getCharacter()
-            root.CFrame = koperPart.CFrame * CFrame.new(0, 0, -3)
-            return true
-        end
-
-        local function teleportToBagasi()
-            local _, root = getCharacter()
-            if bagasiPoint:IsA("BasePart") then
-                root.CFrame = bagasiPoint.CFrame * CFrame.new(0, 0, -2)
-            elseif bagasiPoint:IsA("Model") then
-                root.CFrame = bagasiPoint:GetPivot() * CFrame.new(0, 0, -2)
-            elseif bagasiPoint:IsA("Attachment") then
-                root.CFrame = CFrame.new(bagasiPoint.WorldPosition)
-            end
-            return true
-        end
-
         local function getMinigame()
             local timing = bankCourierGui:FindFirstChild("Timing")
             if not timing then return nil end
@@ -3813,7 +3799,7 @@ do
         -- Sliding minigame: koper icon digeser server, LoadPress ditembak
         -- begitu titik tengahnya masuk rentang slot bagasi.
         local function loadOneKoper(beforeCurrent)
-            teleportToBagasi()
+            if not warpToBagasi() then return false end
             task.wait(0.5)
 
             local muatPrompt = bagasiPoint:FindFirstChild("MuatPrompt", true)
@@ -3883,6 +3869,8 @@ do
             if not current or not total then blog("[5] Tidak bisa membaca jumlah koper!"); break end
             if current >= total then break end
 
+            if not warpToKoper() then blog("[5] Gagal warp ke titik koper!"); break end
+
             local koper = findNextKoper()
             if not koper then
                 local waitStart = tick()
@@ -3895,8 +3883,6 @@ do
             if not koper then blog("[5] Koper berikutnya tidak ditemukan!"); break end
 
             usedKopers[koper] = true
-
-            if not teleportToKoper() then blog("[5] Gagal teleport ke koper!"); break end
 
             task.wait(0.8)
             fireproximityprompt(koperPrompt)
