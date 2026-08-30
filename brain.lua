@@ -3694,8 +3694,10 @@ do
         -- "Part" gak akan pernah muncul.
         do
             local _, hrp = getCharacter()
+            blog("[5] Warp ke titik koper...")
             hrp.CFrame = CFrame.new(koperSpawnPosition)
             task.wait(1)
+            blog("[5] Posisi sekarang: " .. tostring(hrp.Position))
         end
 
         local koperPart = waitForChildSafe(koperSpawn, "Part", 10)
