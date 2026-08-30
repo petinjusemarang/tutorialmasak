@@ -3676,6 +3676,30 @@ do
             return bcaGetKoperProgress()
         end
 
+        local bankCourierRemote = getBankCourierRemote()
+        if not bankCourierRemote then blog("[5] BankCourier Remote tidak ditemukan!"); return false end
+
+        -- Ambil referensi mobil + BagasiPoint SEBELUM warp ke titik koper —
+        -- titik koper ~260 studs dari carSpawnPosition, jauh cukup buat
+        -- mobilnya ke-stream out (StreamingEnabled) kalau kita cek pas udah
+        -- di titik koper duluan.
+        local vehicles = waitForChildSafe(workspace, "Vehicles", 10)
+        if not vehicles then blog("[5] Vehicles tidak ditemukan!"); return false end
+
+        local carName = player.Name .. "sCar"
+        local car = vehicles:FindFirstChild(carName)
+        if not car then blog("[5] Vehicle belum spawn!"); return false end
+
+        local bagasiPoint = nil
+        local bagasiStart = tick()
+        while tick() - bagasiStart < 15 do
+            car = vehicles:FindFirstChild(carName)
+            if car then bagasiPoint = car:FindFirstChild("BagasiPoint", true) end
+            if bagasiPoint then break end
+            task.wait(0.25)
+        end
+        if not bagasiPoint then blog("[5] BagasiPoint tidak ditemukan!"); return false end
+
         local bca = getBCA()
         if not bca then blog("[5] BCA belum siap!"); return false end
 
@@ -3706,26 +3730,6 @@ do
         local koperPrompt = koperPart:FindFirstChild("Prompt")
             or koperPart:FindFirstChildWhichIsA("ProximityPrompt", true)
         if not koperPrompt then blog("[5] Prompt koper tidak ditemukan!"); return false end
-
-        local bankCourierRemote = getBankCourierRemote()
-        if not bankCourierRemote then blog("[5] BankCourier Remote tidak ditemukan!"); return false end
-
-        local vehicles = waitForChildSafe(workspace, "Vehicles", 10)
-        if not vehicles then blog("[5] Vehicles tidak ditemukan!"); return false end
-
-        local carName = player.Name .. "sCar"
-        local car = vehicles:FindFirstChild(carName)
-        if not car then blog("[5] Vehicle belum spawn!"); return false end
-
-        local bagasiPoint = nil
-        local bagasiStart = tick()
-        while tick() - bagasiStart < 15 do
-            car = vehicles:FindFirstChild(carName)
-            if car then bagasiPoint = car:FindFirstChild("BagasiPoint", true) end
-            if bagasiPoint then break end
-            task.wait(0.25)
-        end
-        if not bagasiPoint then blog("[5] BagasiPoint tidak ditemukan!"); return false end
 
         local usedKopers = {}
 
