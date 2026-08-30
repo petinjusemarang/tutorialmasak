@@ -58,9 +58,9 @@ logGui.Name         = "SamlongBrainLog"
 logGui.ResetOnSpawn = false
 
 local logFrame = Instance.new("Frame", logGui)
-logFrame.AnchorPoint      = Vector2.new(1, 1)
+logFrame.AnchorPoint      = Vector2.new(0, 0)
 logFrame.Size             = UDim2.new(0, 300, 0, 140)
-logFrame.Position         = UDim2.new(1, -12, 1, -12)
+logFrame.Position         = UDim2.new(0, 10, 0, 54)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 logFrame.BackgroundTransparency = 0.35
 logFrame.BorderSizePixel = 0
