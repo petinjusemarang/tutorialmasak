@@ -3637,8 +3637,15 @@ do
         if not vehicles then blog("[4] Vehicles tidak ditemukan!"); return false end
 
         local carName = player.Name .. "sCar"
+        local bankCourierRemote = getBankCourierRemote()
+        if not bankCourierRemote then blog("[4] BankCourier tidak ditemukan!"); return false end
 
-        -- Mobil udah auto-spawn dari server pas job mulai — jangan FireServer("RespawnCar") lagi di sini, itu bikin respawn dobel yang bikin koper gagal ke-ambil.
+        -- Ternyata "RespawnCar" ini bukan cuma spawn mobil doang, tapi juga
+        -- yang bikin data Job.BankCourier.KoperSpawn.Part di server — tanpa
+        -- ini, titik kopernya emang gak pernah ke-generate sama sekali
+        -- (bukan soal jarak/streaming kayak dugaan awal).
+        bankCourierRemote:FireServer("RespawnCar")
+
         local car = nil
         local startTime = tick()
         while tick() - startTime < 30 do
