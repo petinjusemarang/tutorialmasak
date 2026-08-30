@@ -4142,16 +4142,32 @@ do
     -- bagasi). Step 6-12 diulang PER KOPER (naik mobil, antar ke ATM
     -- tujuan koper itu, keluar mobil, ambil koper, setor) sampai semua
     -- koper terkirim, baru balik ke Step 1 (ngobrol NPC lagi = job baru).
+    -- Retry sampai 3x; kalau tetap gagal, lanjut aja ke step berikutnya
+    -- (bukan restart seluruh siklus) — watchdog stuck-detector 15/20 menit
+    -- yang tetap jadi safety net kalau job beneran macet total.
+    local function runStepRetry(stepFn, stepNum, maxAttempts)
+        maxAttempts = maxAttempts or 3
+        for attempt = 1, maxAttempts do
+            if stepFn() then return true end
+            if attempt < maxAttempts then
+                blog("Step " .. stepNum .. " gagal (percobaan " .. attempt .. "/" .. maxAttempts .. "), coba lagi...")
+                task.wait(1)
+            end
+        end
+        blog("Step " .. stepNum .. " tetap gagal setelah " .. maxAttempts .. "x, lanjut ke step berikutnya...")
+        return true
+    end
+
     local function runFullCycle()
-        if not runStep1() then return false end
+        runStepRetry(runStep1, 1)
         task.wait(0.5)
-        if not runStep2() then return false end
+        runStepRetry(runStep2, 2)
         task.wait(0.5)
-        if not runStep3() then return false end
+        runStepRetry(runStep3, 3)
         task.wait(0.5)
-        if not runStep4() then return false end
+        runStepRetry(runStep4, 4)
         task.wait(0.5)
-        if not runStep5() then return false end
+        runStepRetry(runStep5, 5)
         task.wait(0.5)
 
         while true do
@@ -4162,19 +4178,19 @@ do
                 break
             end
 
-            if not runStep6() then return false end
+            runStepRetry(runStep6, 6)
             task.wait(0.5)
-            if not runStep7() then return false end
+            runStepRetry(runStep7, 7)
             task.wait(0.5)
-            if not runStep8() then return false end
+            runStepRetry(runStep8, 8)
             task.wait(0.5)
-            if not runStep9() then return false end
+            runStepRetry(runStep9, 9)
             task.wait(0.5)
-            if not runStep10() then return false end
+            runStepRetry(runStep10, 10)
             task.wait(0.5)
-            if not runStep11() then return false end
+            runStepRetry(runStep11, 11)
             task.wait(0.5)
-            if not runStep12() then return false end
+            runStepRetry(runStep12, 12)
             task.wait(0.5)
         end
 
