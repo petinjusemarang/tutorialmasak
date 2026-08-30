@@ -3482,6 +3482,7 @@ do
     --======================================================
     local startPosition = Vector3.new(1805.003, 24.283, -4632.021)
     local carSpawnPosition = Vector3.new(1873.906, 23.369, -4887.753)
+    local koperSpawnPosition = Vector3.new(1779.80, 24.56, -4642.49)
 
     -- Titik parkir kalibrasi manual per ATM (X/Z aja yang dipakai — Y-nya
     -- ketinggian tanah ASLI tiap ATM, beda-beda jauh, jangan dipakai buat
@@ -3679,6 +3680,16 @@ do
 
         local koperSpawn = waitForChildSafe(bankCourierJob, "KoperSpawn", 10)
         if not koperSpawn then blog("[5] KoperSpawn tidak ditemukan!"); return false end
+
+        -- Teleport ke titik koper dulu sebelum nunggu child "Part"-nya —
+        -- part fisiknya baru ke-stream in kalau karakter udah deket
+        -- (StreamingEnabled), kalau masih di carSpawnPosition yang jauh,
+        -- "Part" gak akan pernah muncul.
+        do
+            local _, hrp = getCharacter()
+            hrp.CFrame = CFrame.new(koperSpawnPosition)
+            task.wait(1)
+        end
 
         local koperPart = waitForChildSafe(koperSpawn, "Part", 10)
         if not koperPart then blog("[5] Part koper tidak ditemukan!"); return false end
