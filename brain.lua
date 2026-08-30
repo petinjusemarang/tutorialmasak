@@ -3632,11 +3632,8 @@ do
         if not vehicles then blog("[4] Vehicles tidak ditemukan!"); return false end
 
         local carName = player.Name .. "sCar"
-        local bankCourierRemote = getBankCourierRemote()
-        if not bankCourierRemote then blog("[4] BankCourier tidak ditemukan!"); return false end
 
-        bankCourierRemote:FireServer("RespawnCar")
-
+        -- Mobil udah auto-spawn dari server pas job mulai — jangan FireServer("RespawnCar") lagi di sini, itu bikin respawn dobel yang bikin koper gagal ke-ambil.
         local car = nil
         local startTime = tick()
         while tick() - startTime < 30 do
