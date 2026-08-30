@@ -58,23 +58,27 @@ logGui.Name         = "SamlongBrainLog"
 logGui.ResetOnSpawn = false
 
 local logFrame = Instance.new("Frame", logGui)
-logFrame.Size            = UDim2.new(0, 420, 0, 250)
-logFrame.Position        = UDim2.new(0, 20, 0, 100)
+logFrame.AnchorPoint      = Vector2.new(1, 1)
+logFrame.Size             = UDim2.new(0, 300, 0, 140)
+logFrame.Position         = UDim2.new(1, -12, 1, -12)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-logFrame.BackgroundTransparency = 0.15
+logFrame.BackgroundTransparency = 0.35
 logFrame.BorderSizePixel = 0
-logFrame.Visible         = false -- panel debug disembunyikan, tapi log() tetap jalan (print + EJECT BRAIN tetap ada)
+logFrame.ClipsDescendants = true
+logFrame.ZIndex           = 20
+Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 6)
 
 local logText = Instance.new("TextLabel", logFrame)
 logText.Size                   = UDim2.new(1, -10, 1, -10)
 logText.Position               = UDim2.new(0, 5, 0, 5)
 logText.BackgroundTransparency = 1
 logText.TextXAlignment         = Enum.TextXAlignment.Left
-logText.TextYAlignment         = Enum.TextYAlignment.Top
+logText.TextYAlignment         = Enum.TextYAlignment.Bottom
 logText.Font                   = Enum.Font.Code
-logText.TextSize               = 13
+logText.TextSize               = 11
 logText.TextColor3             = Color3.new(1, 1, 1)
 logText.TextWrapped            = true
+logText.ZIndex                 = 21
 
 local ejectBtn = Instance.new("TextButton", logGui)
 ejectBtn.Size             = UDim2.new(0, 140, 0, 34)
@@ -100,12 +104,12 @@ local logs = ""
 local function log(msg)
     print("[BRAIN] " .. msg)
     logs = logs .. msg .. "\n"
-    -- Keep last ~20 lines
+    -- Keep last ~10 lines (muat di panel kecil)
     local lines = {}
     for l in logs:gmatch("[^\n]+") do table.insert(lines, l) end
-    if #lines > 20 then
+    if #lines > 10 then
         local trimmed = {}
-        for i = #lines - 19, #lines do trimmed[#trimmed + 1] = lines[i] end
+        for i = #lines - 9, #lines do trimmed[#trimmed + 1] = lines[i] end
         logs = table.concat(trimmed, "\n") .. "\n"
     end
     logText.Text = logs
