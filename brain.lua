@@ -871,8 +871,8 @@ local function startJokiUang()
         getgenv().teleportTime        = "50.5"
         getgenv().recallJobTime       = "0.3"
         getgenv().optimizePerformance = true
-        script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP"; -- keys
-loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
+        getgenv().ZentaraKey = "ZH_c44668c0761b69b1fd3bba2f"
+        loadstring(game:HttpGet("https://www.zentara.web.id/api/script/get?id=6a63599126ffb4e56d289f34&key=" .. getgenv().ZentaraKey))()
     end)
 end
 
