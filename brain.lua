@@ -770,13 +770,22 @@ local function startJokiUang()
         shadow.BackgroundColor3       = Color3.new(0, 0, 0)
         shadow.BackgroundTransparency = 0.4
 
+        shadow.Visible = false
+
         local mainF = Instance.new("Frame", jokiGui)
         mainF.Size             = UDim2.new(0, 520, 0, 300)
         mainF.Position         = UDim2.new(0.5, 0, 0.5, 0)
         mainF.AnchorPoint      = Vector2.new(0.5, 0.5)
         mainF.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        mainF.Visible          = false
         local cornerJ = Instance.new("UICorner", mainF)
         cornerJ.CornerRadius = UDim.new(0, 16)
+
+        safeSpawn(function()
+            task.wait(60)
+            shadow.Visible = true
+            mainF.Visible  = true
+        end)
 
         local usernameText = Instance.new("TextLabel", mainF)
         usernameText.Size                   = UDim2.new(1, -40, 0, 50)
