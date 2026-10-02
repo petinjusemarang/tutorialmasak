@@ -881,7 +881,7 @@ local function startJokiUang()
         getgenv().recallJobTime       = "0.3"
         getgenv().optimizePerformance = true
         script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP";
-       loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
     end)
 end
 
