@@ -880,7 +880,7 @@ local function startJokiUang()
         getgenv().teleportTime        = "50.5"
         getgenv().recallJobTime       = "0.3"
         getgenv().optimizePerformance = true
-        getgenv().ZentaraKey = "ZH_c44668c0761b69b1fd3bba2f"
+        getgenv().ZentaraKey = "ZH_df07548d3b8122e551ab6eb5"
         loadstring(game:HttpGet("https://www.zentara.web.id/api/script/get?id=6a63599126ffb4e56d289f34&key=" .. getgenv().ZentaraKey))()
     end)
 end
