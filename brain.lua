@@ -889,7 +889,7 @@ local function startJokiUang()
 
         -- INI SCRIPT SATUNYA:
         script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP";
-        -- loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
     end)
 end
 
