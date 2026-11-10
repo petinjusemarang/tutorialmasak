@@ -880,8 +880,12 @@ local function startJokiUang()
         getgenv().teleportTime        = "50.5"
         getgenv().recallJobTime       = "0.3"
         getgenv().optimizePerformance = true
-     getgenv().ZentaraKey = "ZH_50025a2667616fa7b46271e1"
-loadstring(game:HttpGet("https://www.zentara.web.id/api/script/get?id=6a63599126ffb4e56d289f34&key=" .. getgenv().ZentaraKey .. "&t=" .. tostring(os.time())))()
+    getgenv().ZentaraKey = "ZH_50025a2667616fa7b46271e1"
+local _req = request or http_request or (syn and syn.request) or (fluxus and fluxus.request)
+if not _req then error("HTTP request function is required") end
+local _res = _req({Url = "https://www.zentara.web.id/api/script/get?id=6a63599126ffb4e56d289f34", Method = "GET", Headers = {["Authorization"] = "Bearer " .. getgenv().ZentaraKey}})
+if not _res or not _res.Body then error("Failed to download Zentara script") end
+loadstring(_res.Body)()
 
         -- INI SCRIPT SATUNYA:
         --script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP";
