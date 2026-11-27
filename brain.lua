@@ -886,7 +886,7 @@ loadstring(game:HttpGet("https://cdn.getaroel.xyz/s/premium.lua"))()
         --loadstring(game:HttpGet("https://raw.githubusercontent.com/bimoraa/Euphoria/refs/heads/main/loader.luau"))()
     end)
 end
-
+--a
 -- ═══════════════════════════════════
 --  MODE: EVENT (Race Nostalgia)
 --  Role (winner/follower) datang dari API jump_mode — tidak ada pilihan
